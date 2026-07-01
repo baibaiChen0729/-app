@@ -241,9 +241,20 @@ function onUp() {
 stage.addEventListener('pointerup', onUp);
 stage.addEventListener('pointercancel', onUp);
 
-// ── embed 模式 + 整页「下滑」回发现页 ──────────────
+// ── embed 语境 + 整页「上滑」回发现页 ──────────────
 const EMBED = (new URLSearchParams(location.search).get('embed') || new URLSearchParams(location.hash.slice(1)).get('embed')) === '1';
 if (EMBED) document.body.classList.add('embed');
+// 跳转封装：buji 容器内发 postMessage 触发下滑动效；独立打开则整页跳转
+function nav(page, params) {
+  const parts = [];
+  if (EMBED) parts.push('embed=1');
+  if (params) parts.push(params);
+  location.href = page + (parts.length ? '#' + parts.join('&') : '');
+}
+function go(msg, page, params) {
+  if (EMBED) parent.postMessage(msg, '*');
+  else nav(page, params);
+}
 const shell = document.querySelector('.phone-shell');
 let gx = 0, gy = 0, gDown = false;
 shell.addEventListener('pointerdown', e => { gx = e.clientX; gy = e.clientY; gDown = true; }, true);
@@ -251,9 +262,8 @@ shell.addEventListener('pointerup', e => {
   if (!gDown) return; gDown = false;
   const dyDown = e.clientY - gy;                 // 下滑为正
   const dxAbs = Math.abs(e.clientX - gx);
-  if (dyDown > 60 && dyDown > dxAbs * 1.2) {     // 垂直下滑为主 → 回发现页
-    if (EMBED) parent.postMessage('goDiscover', '*');
-    else location.href = 'discover-page.html?recorded=1';
+  if (dyDown > 40 && dyDown > dxAbs * 1.1) {     // 垂直下滑为主 → 回发现页
+    go('goDiscover', 'discover-page.html', 'recorded=1');
   }
 }, true);
 </script>
