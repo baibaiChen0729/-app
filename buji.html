@@ -11,7 +11,7 @@
     display: flex; align-items: center; justify-content: center;
     font-family: -apple-system, "PingFang SC", sans-serif;
   }
-  /* 真·手机外壳（两屏共用，固定不动） */
+  /* 真·手机外壳（固定不动） */
   .phone-shell {
     width: 430px; height: 932px; border-radius: 54px; overflow: hidden; position: relative;
     background: #000; box-shadow: 0 0 0 2px #2a2a30, 0 30px 80px rgba(0,0,0,0.8);
@@ -20,36 +20,59 @@
   @media (max-height: 820px) { .phone-shell { transform: scale(0.74); transform-origin: center; } }
   @media (max-height: 720px) { .phone-shell { transform: scale(0.64); transform-origin: center; } }
 
-  /* 垂直滑动轨道：高 200%（两屏），translateY 切换 */
+  /* 垂直滑动轨道：高 200%（发现页 + 相册地图两屏），translateY 切换（连续滑动动效） */
   .track {
     position: absolute; left: 0; top: 0; width: 100%; height: 200%;
-    transition: transform 0.52s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
     will-change: transform;
   }
   .track iframe { display: block; width: 100%; height: 50%; border: 0; }
+
+  /* 覆盖层：相机 / 发布页，从底部滑入盖住整屏 */
+  .overlay {
+    position: absolute; inset: 0; width: 100%; height: 100%; border: 0;
+    background: #0a0a0f; z-index: 10;
+    transform: translateY(100%);
+    transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+    will-change: transform;
+    pointer-events: none;   /* 藏起时不拦截点击，避免挡住下方发现页 */
+  }
+  .overlay.show { transform: translateY(0); pointer-events: auto; }
 </style>
 </head>
 <body>
   <div class="phone-shell">
+    <!-- 双屏轨道：第 0 屏发现页 / 第 1 屏相册地图 -->
     <div class="track" id="track">
-      <!-- 第 0 屏：发现页（embed 模式：去外壳；recorded=1：默认呼吸灯，可上滑） -->
-      <iframe id="f0" src="discover-page.html#embed=1&recorded=1"></iframe>
-      <!-- 第 1 屏：相册地图（embed 模式） -->
-      <iframe id="f1" src="album-map.html#embed=1"></iframe>
+      <iframe id="fDiscover" src="discover-page.html#embed=1&recorded=1"></iframe>
+      <iframe id="fAlbum" src="album-map.html#embed=1"></iframe>
     </div>
+    <!-- 覆盖层：相机 / 发布（按需加载滑入） -->
+    <iframe id="fOverlay" class="overlay"></iframe>
   </div>
 
   <script>
-    const track = document.getElementById('track');
-    let page = 0;                    // 0=发现页, 1=相册地图
-    function goTo(p) {
-      page = p;
-      track.style.transform = 'translateY(' + (-p * 50) + '%)';   // -50% = 上移一屏
-    }
-    // 子页通过 postMessage 通知切换
+    // ══════════════════════════════════════════════════════════
+    //  步集容器 · 双屏轨道滑动 + 覆盖层
+    //  发现页 ↔ 相册地图：track 上下滑动（连续动效）
+    //  相机/发布：overlay 从底部滑入
+    // ══════════════════════════════════════════════════════════
+    const track   = document.getElementById('track');
+    const overlay = document.getElementById('fOverlay');
+
+    function toDiscover() { track.style.transform = 'translateY(0)'; }
+    function toAlbum()    { track.style.transform = 'translateY(-50%)'; }
+    function openOverlay(src) { overlay.src = src; requestAnimationFrame(() => overlay.classList.add('show')); }
+    function closeOverlay()   { overlay.classList.remove('show'); setTimeout(() => { if (!overlay.classList.contains('show')) overlay.removeAttribute('src'); }, 500); }
+
     window.addEventListener('message', (e) => {
-      if (e.data === 'goAlbum') goTo(1);        // 发现页上滑 → 相册地图
-      else if (e.data === 'goDiscover') goTo(0); // 相册地图下滑 → 发现页
+      const d = e.data;
+      if (d === 'goAlbum')          toAlbum();                                   // 发现页 → 相册地图（上滑）
+      else if (d === 'goDiscover')  toDiscover();                                // 相册地图 → 发现页（下滑）
+      else if (d === 'openCamera')  openOverlay('live-template-camera.html#embed=1');  // 发现页 → 相机
+      else if (d === 'goPublish')   { overlay.src = 'publish-page.html#embed=1'; }     // 相机 → 发布（重载读草稿，overlay 保持显示）
+      else if (d === 'publishDone') { toAlbum(); closeOverlay(); }               // 发布完成 → 相册地图 + 收起覆盖层
+      else if (d === 'closeOverlay') closeOverlay();                             // 相机/发布返回 → 收起覆盖层回发现页
     });
   </script>
 </body>
