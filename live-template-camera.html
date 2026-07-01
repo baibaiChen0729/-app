@@ -21,8 +21,8 @@
 
   /* ─── 手机外壳 ─── */
   .phone-shell {
-    width: 390px;
-    height: 844px;
+    width: 430px;
+    height: 1012px;
     background: #1c1c20;
     border-radius: 50px;
     box-shadow: 0 0 0 2px #2a2a30, 0 30px 80px rgba(0,0,0,0.8);
@@ -31,9 +31,14 @@
     display: flex;
     flex-direction: column;
   }
-  @media (max-height: 880px) { .phone-shell { transform: scale(0.92); transform-origin: center; } }
-  @media (max-height: 780px) { .phone-shell { transform: scale(0.82); transform-origin: center; } }
-  @media (max-height: 700px) { .phone-shell { transform: scale(0.72); transform-origin: center; } }
+  @media (max-height: 1040px) { .phone-shell { transform: scale(0.92); transform-origin: center; } }
+  @media (max-height: 940px)  { .phone-shell { transform: scale(0.82); transform-origin: center; } }
+  @media (max-height: 840px)  { .phone-shell { transform: scale(0.72); transform-origin: center; } }
+  @media (max-height: 740px)  { .phone-shell { transform: scale(0.62); transform-origin: center; } }
+
+  /* embed 模式（嵌入 buji.html 容器）：去掉外壳圆角/阴影，深色铺底 */
+  body.embed { background: #0a0a14; }
+  body.embed .phone-shell { border-radius: 0; box-shadow: none; }
 
   /* ─── 状态栏 ─── */
   .status-bar {
@@ -61,12 +66,27 @@
 
   /* ─── 相机主区 ─── */
   .camera-stage {
-    flex: 1;
+    flex-shrink: 0;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    padding: 4px 12px; position: relative;
+    padding: 4px 0; position: relative;
+  }
+  /* 固定尺寸预览容器（对齐 Figma：外层 Frame 2116747366 = 430×572）——
+     图片在容器内 flex 居中；图片尺寸变化只发生在容器内部，
+     容器高度恒为 572，绝不影响下方控件位置。 */
+  .preview-container {
+    width: 430px;
+    height: 572px;
+    position: relative;
+    overflow: hidden;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   .canvas-wrapper {
-    border-radius: 8px; overflow: hidden; position: relative;
+    border-radius: 8px; overflow: hidden;
+    position: relative;
+    flex-shrink: 0;
   }
   #compositeCanvas { display: block; }
 
@@ -246,7 +266,7 @@
 
   <!-- 顶部 -->
   <div class="top-bar">
-    <div class="top-btn" title="闪光灯">
+    <div class="top-btn" id="topLeftBtn" title="闪光灯">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L4.09 12.97a.5.5 0 0 0 .38.83H11l-1 8 8.91-10.97a.5.5 0 0 0-.38-.83H13l1-8z"/></svg>
     </div>
     <div style="font-size:13px;font-weight:600;color:#fff;letter-spacing:3px">步集</div>
@@ -257,9 +277,12 @@
 
   <!-- 相机主舞台 -->
   <div class="camera-stage">
-    <div class="canvas-wrapper" id="canvasWrapper">
-      <canvas id="compositeCanvas"></canvas>
-      <div class="fps-badge" id="fpsBadge">-- fps</div>
+    <!-- 固定尺寸容器（406×572）：canvas 在里面居中，容器高度永远不变 -->
+    <div class="preview-container" id="previewContainer">
+      <div class="canvas-wrapper" id="canvasWrapper">
+        <canvas id="compositeCanvas"></canvas>
+        <div class="fps-badge" id="fpsBadge">-- fps</div>
+      </div>
     </div>
   </div>
 
@@ -345,7 +368,7 @@
     <div class="result-toast">🌫️ 又攒了一张！<br><strong>步步成集</strong></div>
     <div class="result-actions">
       <button class="result-btn secondary" id="retakeBtn">再拍一张</button>
-      <button class="result-btn primary" id="saveBtn">保存到步集</button>
+      <button class="result-btn primary" id="saveBtn">去发布</button>
     </div>
   </div>
 
@@ -840,15 +863,40 @@ document.getElementById('permBtn').addEventListener('click', startCamera);
 document.getElementById('demoBtn').addEventListener('click', startDemoMode);
 document.getElementById('shutterBtn').addEventListener('click', takePhoto);
 document.getElementById('flipBtn').addEventListener('click', flipCamera);
+// 取消：关闭确认弹窗，留在相机页继续拍照
 document.getElementById('retakeBtn').addEventListener('click', () => resultOverlay.classList.remove('show'));
+
+// ── embed 语境 + 跳转封装 ──────────────────────────────────
+const IS_EMBED = location.hash.includes('embed=1');
+function nav(page, params) {
+  const parts = [];
+  if (IS_EMBED) parts.push('embed=1');
+  if (params) parts.push(params);
+  location.href = page + (parts.length ? '#' + parts.join('&') : '');
+}
+// buji 容器内：发 postMessage；独立打开：整页跳转
+function go(msg, page, params) {
+  if (IS_EMBED) parent.postMessage(msg, '*');
+  else nav(page, params);
+}
+
+// 去发布：把成图存入 localStorage 草稿 → 发布页
 document.getElementById('saveBtn').addEventListener('click', () => {
-  const link = document.createElement('a');
-  link.download = `步集_${Date.now()}.png`;
-  link.href = resultCanvas.toDataURL('image/png');
-  link.click();
+  try { localStorage.setItem('buji_draft', resultCanvas.toDataURL('image/png')); } catch (e) {}
   resultOverlay.classList.remove('show');
-  showToast('🌫️ 已保存！迷雾地图又散开了一点');
+  go('goPublish', 'publish-page.html');
 });
+
+// embed 模式：顶部左键（闪光灯）→ 返回箭头，返回发现页
+if (IS_EMBED) {
+  document.body.classList.add('embed');
+  const backBtn = document.getElementById('topLeftBtn');
+  if (backBtn) {
+    backBtn.title = '返回';
+    backBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>';
+    backBtn.addEventListener('click', () => go('closeOverlay', 'discover-page.html', 'recorded=1'));
+  }
+}
 
 // 横竖切换
 document.querySelectorAll('.seg-btn[data-orient]').forEach(btn => {
