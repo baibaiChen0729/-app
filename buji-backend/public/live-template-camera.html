@@ -1,0 +1,1166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>步集 · 实时模板相机 v3</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    background: #0a0a0f;
+    font-family: -apple-system, "PingFang SC", sans-serif;
+    min-height: 100dvh;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    user-select: none;
+  }
+
+  /* ─── 手机外壳 ─── */
+  .phone-shell {
+    width: 430px;
+    height: 1012px;
+    background: #1c1c20;
+    border-radius: 50px;
+    box-shadow: 0 0 0 2px #2a2a30, 0 30px 80px rgba(0,0,0,0.8);
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+  @media (max-height: 1040px) { .phone-shell { transform: scale(0.92); transform-origin: center; } }
+  @media (max-height: 940px)  { .phone-shell { transform: scale(0.82); transform-origin: center; } }
+  @media (max-height: 840px)  { .phone-shell { transform: scale(0.72); transform-origin: center; } }
+  @media (max-height: 740px)  { .phone-shell { transform: scale(0.62); transform-origin: center; } }
+
+  /* embed 模式（嵌入 buji.html 容器）：去掉外壳圆角/阴影，深色铺底 */
+  /* embed 模式（嵌入 buji.html 覆盖层 iframe）：
+     等比缩放（scale fit-to-iframe）确保快门键 / 所有控件始终可见，不被截断 */
+  body.embed { background: #0a0a14; align-items: flex-start; justify-content: center; overflow: hidden; }
+  body.embed .phone-shell {
+    border-radius: 0; box-shadow: none;
+    /* 固定设计尺寸；transform 由 JS 按 iframe 实际大小计算 */
+    width: 430px; height: 1012px; flex-shrink: 0;
+    transform-origin: top center !important;
+    /* 覆盖 @media max-height 的 scale（JS 会重新设置正确值） */
+    transform: scale(1) !important;
+  }
+
+  /* ─── 状态栏 ─── */
+  .status-bar {
+    height: 48px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 28px; z-index: 100; flex-shrink: 0;
+  }
+  .status-time { font-size: 16px; font-weight: 700; color: #fff; }
+  .status-icons { display: flex; gap: 5px; align-items: center; font-size: 13px; color: #fff; }
+
+  /* ─── 顶部工具栏 ─── */
+  .top-bar {
+    height: 52px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px; z-index: 100; flex-shrink: 0;
+  }
+  .top-btn {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: rgba(255,255,255,0.08); border: 1.5px solid rgba(255,255,255,0.2);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: #fff; transition: background 0.2s; font-size: 14px;
+  }
+  .top-btn:active { background: rgba(255,255,255,0.18); }
+  .top-btn svg { width: 16px; height: 16px; }
+
+  /* ─── 相机主区 ─── */
+  .camera-stage {
+    flex-shrink: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 4px 0; position: relative;
+  }
+  /* 固定尺寸预览容器（对齐 Figma：外层 Frame 2116747366 = 430×572）——
+     图片在容器内 flex 居中；图片尺寸变化只发生在容器内部，
+     容器高度恒为 572，绝不影响下方控件位置。 */
+  .preview-container {
+    width: 430px;
+    height: 572px;
+    position: relative;
+    overflow: hidden;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .canvas-wrapper {
+    border-radius: 8px; overflow: hidden;
+    position: relative;
+    flex-shrink: 0;
+  }
+  #compositeCanvas { display: block; }
+
+  /* 权限页 */
+  .permission-screen {
+    position: absolute; inset: 0; background: #0a0a14;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px; z-index: 200; padding: 0 40px;
+  }
+  .permission-screen.hidden { display: none; }
+  .perm-icon { font-size: 48px; }
+  .perm-title { font-size: 18px; font-weight: 600; color: #fff; }
+  .perm-desc { font-size: 13px; color: rgba(255,255,255,0.5); text-align: center; line-height: 1.6; }
+  .perm-btn {
+    background: linear-gradient(135deg, #ffe0c4, #ffb8d6); color: #1a0a0f;
+    border: none; border-radius: 24px; padding: 12px 32px;
+    font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 6px;
+  }
+
+  /* ─── 横竖 + 主图位置 ─── */
+  .orient-controls {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 6px 0 2px;
+  }
+  .seg-btn {
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.75); padding: 5px 14px; border-radius: 14px;
+    font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.2s;
+  }
+  .seg-btn.active {
+    background: linear-gradient(135deg, #ffe0c4, #ffb8d6); color: #1a0a0f; border-color: transparent;
+  }
+  .seg-btn.swap {
+    background: rgba(196, 168, 255, 0.18); border-color: rgba(196, 168, 255, 0.3); color: #c4a8ff;
+  }
+  .seg-btn:active { transform: scale(0.95); }
+
+  /* ─── 形状选择器 ─── */
+  .shape-bar {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 6px 0 2px;
+  }
+  .shape-btn {
+    width: 38px; height: 38px; border-radius: 50%;
+    background: rgba(255,255,255,0.08); border: 1.5px solid rgba(255,255,255,0.15);
+    color: rgba(255,255,255,0.7); font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .shape-btn.active {
+    background: linear-gradient(135deg, #ffe0c4, #ffb8d6); border-color: transparent;
+    color: #1a0a0f; transform: scale(1.08);
+  }
+  .shape-btn:active { transform: scale(0.94); }
+
+  /* ─── 参数条 ─── */
+  .param-bar { display: flex; align-items: center; gap: 10px; padding: 3px 24px; }
+  .param-label { font-size: 10px; color: rgba(255,255,255,0.55); white-space: nowrap; min-width: 38px; }
+  .param-slider {
+    flex: 1; -webkit-appearance: none; height: 2px;
+    background: rgba(255,255,255,0.2); border-radius: 1px; outline: none;
+  }
+  .param-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+    background: linear-gradient(135deg, #ffe0c4, #ffb8d6); cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  }
+  .param-value {
+    font-size: 10px; color: rgba(255,255,255,0.6); min-width: 24px; text-align: right;
+    font-family: 'SF Mono', Menlo, monospace;
+  }
+
+  /* ─── 填充色 ─── */
+  .color-bar {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 6px 0 2px;
+  }
+  .color-swatch {
+    width: 28px; height: 28px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.25); cursor: pointer; transition: all 0.2s;
+  }
+  .color-swatch.active { border-color: #ffb8d6; transform: scale(1.12); }
+  .color-swatch:active { transform: scale(0.92); }
+  .color-add {
+    width: 28px; height: 28px; border-radius: 50%; position: relative;
+    border: 1.5px dashed rgba(255,255,255,0.4);
+    display: flex; align-items: center; justify-content: center;
+    color: rgba(255,255,255,0.7); font-size: 18px; cursor: pointer;
+    background: rgba(255,255,255,0.05);
+  }
+  .color-add input[type=color] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer; border: none; padding: 0;
+  }
+
+  /* ─── 变焦档 ─── */
+  .zoom-bar { display: flex; align-items: center; justify-content: center; gap: 5px; padding: 6px 0; flex-shrink: 0; }
+  .zoom-btn {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: rgba(0,0,0,0.45); color: rgba(255,255,255,0.7);
+    font-size: 11px; font-weight: 600; border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; transition: all 0.2s;
+  }
+  .zoom-btn.active { background: rgba(255,255,255,0.25); color: #ffe0c4; width: 36px; height: 36px; font-size: 13px; }
+
+  /* ─── 底部行动区 ─── */
+  .action-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 32px 18px; flex-shrink: 0;
+  }
+  .side-btn {
+    width: 44px; height: 44px; border-radius: 12px;
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; cursor: pointer; color: #fff;
+    transition: background 0.2s, transform 0.1s; overflow: hidden;
+  }
+  .side-btn.album { background: linear-gradient(135deg, #4a4a55, #2a2a35); background-size: cover; background-position: center; }
+  .side-btn:active { transform: scale(0.92); }
+  .side-btn svg { width: 26px; height: 26px; }
+
+  .shutter-btn {
+    width: 68px; height: 68px; border-radius: 50%; background: #fff;
+    cursor: pointer; position: relative; transition: transform 0.1s;
+    box-shadow: 0 0 0 4px rgba(255,255,255,0.25);
+  }
+  .shutter-btn::before { content: ''; position: absolute; inset: 4px; border-radius: 50%; border: 2px solid #1c1c20; }
+  .shutter-btn:active { transform: scale(0.92); }
+  .shutter-btn.capturing { background: #ffb8d6; }
+
+  /* ─── FPS ─── */
+  .fps-badge {
+    position: absolute; top: 8px; right: 12px; font-size: 9px; font-weight: 600;
+    color: #4eff91; background: rgba(0,0,0,0.5); padding: 2px 6px; border-radius: 5px;
+    font-family: 'SF Mono', Menlo, monospace; z-index: 50;
+  }
+
+  /* ─── 闪光 ─── */
+  .flash {
+    position: absolute; inset: 0; background: #fff; z-index: 150; opacity: 0;
+    pointer-events: none; border-radius: 50px; transition: opacity 0.1s;
+  }
+  .flash.active { opacity: 0.75; }
+
+  /* ─── 成片确认层（confirming 态）─── */
+  .confirm-overlay {
+    position: absolute; inset: 0; z-index: 200;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.28s cubic-bezier(0.22,1,0.36,1);
+    display: flex; flex-direction: column;
+  }
+  .confirm-overlay.show { opacity: 1; pointer-events: all; }
+
+  /* 全屏成片画布 */
+  #confirmCanvas {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: contain; background: #000;
+  }
+
+  /* 底部操作区：叉 + 勾，直径 68 */
+  .confirm-actions {
+    position: absolute; bottom: 48px; left: 0; right: 0;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 60px;
+    z-index: 10;
+  }
+  .confirm-btn {
+    width: 68px; height: 68px; border-radius: 50%;
+    border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: transform 0.15s, opacity 0.15s;
+  }
+  .confirm-btn:active { transform: scale(0.9); opacity: 0.8; }
+  .confirm-btn.cancel {
+    background: rgba(255,255,255,0.15);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1.5px solid rgba(255,255,255,0.3);
+  }
+  .confirm-btn.done {
+    background: rgba(255,255,255,0.95);
+  }
+  .confirm-btn svg { width: 28px; height: 28px; }
+
+  /* ─── 旧成片层（保留兼容，实际不再使用）─── */
+  .result-overlay {
+    position: absolute; inset: 0; background: rgba(0,0,0,0.9); z-index: 200;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; opacity: 0; pointer-events: none; transition: opacity 0.25s; padding: 0 30px;
+  }
+  .result-overlay.show { opacity: 1; pointer-events: all; }
+  #resultCanvas { max-width: 280px; max-height: 400px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
+  .result-toast { font-size: 13px; color: rgba(255,255,255,0.7); text-align: center; line-height: 1.6; }
+  .result-toast strong { color: #ffb8d6; font-weight: 600; }
+  .result-actions { display: flex; gap: 10px; margin-top: 4px; }
+  .result-btn { padding: 10px 22px; border-radius: 22px; border: none; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .result-btn.primary { background: linear-gradient(135deg, #ffe0c4, #ffb8d6); color: #1a0a0f; }
+  .result-btn.secondary { background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); }
+
+  @keyframes swapAnim { 0% { transform: scale(1);} 50% { transform: scale(0.95) rotate(2deg); opacity: 0.7;} 100% { transform: scale(1);} }
+  .canvas-wrapper.swapping { animation: swapAnim 0.4s ease; }
+  @keyframes fadeup {
+    0% { opacity: 0; transform: translateX(-50%) translateY(8px);} 15% { opacity: 1; transform: translateX(-50%) translateY(0);}
+    80% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) translateY(-8px);}
+  }
+  #randomBtn { transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+</style>
+</head>
+<body>
+
+<div class="phone-shell" id="phoneShell">
+
+  <!-- 状态栏 -->
+  <div class="status-bar">
+    <div class="status-time" id="statusTime">15:30</div>
+    <div class="status-icons">📶 🔋</div>
+  </div>
+
+  <!-- 顶部 -->
+  <div class="top-bar">
+    <div class="top-btn" id="topLeftBtn" title="闪光灯">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L4.09 12.97a.5.5 0 0 0 .38.83H11l-1 8 8.91-10.97a.5.5 0 0 0-.38-.83H13l1-8z"/></svg>
+    </div>
+    <div style="font-size:13px;font-weight:600;color:#fff;letter-spacing:3px">步集</div>
+    <div class="top-btn" id="flipBtn" title="切换前后摄">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+    </div>
+  </div>
+
+  <!-- 相机主舞台 -->
+  <div class="camera-stage">
+    <!-- 固定尺寸容器（406×572）：canvas 在里面居中，容器高度永远不变 -->
+    <div class="preview-container" id="previewContainer">
+      <div class="canvas-wrapper" id="canvasWrapper">
+        <canvas id="compositeCanvas"></canvas>
+        <div class="fps-badge" id="fpsBadge">-- fps</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 横竖 + 主图位置 -->
+  <div class="orient-controls">
+    <button class="seg-btn active" data-orient="portrait" title="竖屏 · 上下分割">▯ 竖屏</button>
+    <button class="seg-btn" data-orient="landscape" title="横屏 · 左右分割">▭ 横屏</button>
+    <button class="seg-btn swap" id="swapBtn" title="主图上下交换">⇅ 主图在上</button>
+  </div>
+
+  <!-- 形状选择器（由后端 /v1/config 下发，动态渲染；下面是加载前的占位/兜底） -->
+  <div class="shape-bar" id="shapeBar"></div>
+
+  <!-- 参数：占比 / 差异 / 大小 / 数量 -->
+  <div class="param-bar">
+    <div class="param-label">占比</div>
+    <input type="range" class="param-slider" id="ratioSlider" min="0" max="100" value="50">
+    <div class="param-value" id="ratioValue">50</div>
+  </div>
+  <div class="param-bar">
+    <div class="param-label">差异</div>
+    <input type="range" class="param-slider" id="varSlider" min="0" max="100" value="50">
+    <div class="param-value" id="varValue">50</div>
+  </div>
+  <div class="param-bar">
+    <div class="param-label">大小</div>
+    <input type="range" class="param-slider" id="sizeSlider" min="8" max="36" value="20">
+    <div class="param-value" id="sizeValue">20</div>
+  </div>
+  <div class="param-bar">
+    <div class="param-label">数量</div>
+    <input type="range" class="param-slider" id="dotSlider" min="5" max="40" value="14">
+    <div class="param-value" id="dotValue">14</div>
+  </div>
+
+  <!-- 填充色 -->
+  <div class="color-bar" id="colorBar">
+    <!-- 预设色 swatch 动态生成 -->
+    <div class="color-add" title="自定义颜色（系统取色器）">
+      ＋<input type="color" id="colorPicker" value="#bfe5f0">
+    </div>
+  </div>
+
+  <!-- 变焦 -->
+  <div class="zoom-bar">
+    <button class="zoom-btn">0.5</button>
+    <button class="zoom-btn active">1×</button>
+    <button class="zoom-btn">2</button>
+    <button class="zoom-btn">3</button>
+  </div>
+
+  <!-- 行动行 -->
+  <div class="action-row">
+    <div class="side-btn album" id="albumBtn">🖼</div>
+    <div class="shutter-btn" id="shutterBtn"></div>
+    <div class="side-btn" id="randomBtn" title="随机位置">
+      <svg viewBox="0 0 60 60" fill="none" aria-label="随机位置">
+        <path d="M14.0359 29.8127C13.7664 30.203 13.6874 30.5469 13.799 30.8442C13.9198 31.1416 14.2311 31.2903 14.7329 31.2903H16.5589C16.7448 32.963 17.2234 34.5289 17.9947 35.9879C18.766 37.4468 19.7603 38.7246 20.9777 39.8212C22.1951 40.9177 23.5751 41.7773 25.1177 42.4C26.6603 43.0226 28.2959 43.3339 30.0243 43.3339C32.0037 43.3339 33.8577 42.925 35.5861 42.1072C37.3146 41.2895 38.7922 40.1929 40.0189 38.8175C40.2976 38.5202 40.4277 38.1996 40.4092 37.8557C40.3999 37.5119 40.2651 37.2331 40.0049 37.0194C39.7354 36.7963 39.438 36.7034 39.1128 36.7406C38.7968 36.7685 38.5041 36.9218 38.2346 37.2006C37.231 38.325 36.0183 39.2171 34.5964 39.8769C33.1839 40.5367 31.6599 40.8666 30.0243 40.8666C28.6118 40.8666 27.2829 40.6204 26.0377 40.1278C24.7924 39.6446 23.6773 38.9662 22.6923 38.0927C21.7165 37.2192 20.9127 36.2062 20.2807 35.0539C19.6581 33.9016 19.2585 32.6471 19.082 31.2903H21.0474C21.5399 31.2903 21.8466 31.1416 21.9674 30.8442C22.0882 30.5469 22.0139 30.2077 21.7444 29.8267L18.6777 25.5055C18.4547 25.1802 18.1898 25.0176 17.8832 25.0176C17.5858 25.0176 17.321 25.1802 17.0886 25.5055L14.0359 29.8127ZM20.0577 20.7522C19.7696 21.0495 19.6302 21.3701 19.6395 21.714C19.6581 22.0578 19.7975 22.3366 20.0577 22.5503C20.3179 22.7641 20.6106 22.857 20.9359 22.8291C21.2611 22.8012 21.5585 22.6479 21.828 22.3691C22.8316 21.254 24.0397 20.3712 25.4522 19.7207C26.8648 19.0609 28.3888 18.731 30.0243 18.731C31.4369 18.731 32.7657 18.9726 34.011 19.4558C35.2562 19.939 36.3667 20.6174 37.3425 21.4909C38.3275 22.3552 39.1314 23.3681 39.754 24.5297C40.3859 25.6913 40.7902 26.9459 40.9667 28.2933H39.0013C38.518 28.2933 38.2114 28.442 38.0813 28.7394C37.9512 29.0368 38.0255 29.376 38.3043 29.757L41.357 34.0782C41.5801 34.3941 41.8449 34.5568 42.1516 34.566C42.4582 34.566 42.7231 34.4034 42.9461 34.0782L46.0128 29.7709C46.2916 29.3806 46.3659 29.0368 46.2358 28.7394C46.115 28.442 45.8083 28.2933 45.3158 28.2933H43.4758C43.2899 26.6206 42.8114 25.0548 42.0401 23.5958C41.278 22.1368 40.2883 20.859 39.071 19.7625C37.8536 18.6659 36.4736 17.8063 34.931 17.1837C33.3884 16.5611 31.7528 16.2498 30.0243 16.2498C28.0543 16.2498 26.205 16.6586 24.4765 17.4764C22.7573 18.2849 21.2844 19.3768 20.0577 20.7522Z" fill="currentColor"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- 权限 -->
+  <div class="permission-screen" id="permScreen">
+    <div class="perm-icon">📷</div>
+    <div class="perm-title">步集相机</div>
+    <div class="perm-desc">需要访问摄像头来实时合成模板效果。<br>照片只在本地处理，不会上传。</div>
+    <button class="perm-btn" id="permBtn">允许使用摄像头</button>
+    <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-top:4px">或 <span id="demoBtn" style="color:#ffb8d6;cursor:pointer;text-decoration:underline">使用演示模式</span></div>
+  </div>
+
+  <!-- 闪光 -->
+  <div class="flash" id="flash"></div>
+
+  <!-- 成片确认层（confirming 态：快门冻结帧全屏 + 底部 close/done） -->
+  <div class="confirm-overlay" id="confirmOverlay">
+    <canvas id="confirmCanvas"></canvas>
+    <div class="confirm-actions">
+      <!-- 叉：取消，返回实时预览 -->
+      <button class="confirm-btn cancel" id="confirmCancelBtn" aria-label="取消">
+        <svg viewBox="0 0 28 28" fill="none" stroke="rgba(255,255,255,0.9)" stroke-width="2.4" stroke-linecap="round">
+          <line x1="8" y1="8" x2="20" y2="20"/>
+          <line x1="20" y1="8" x2="8" y2="20"/>
+        </svg>
+      </button>
+      <!-- 勾：确认，存草稿去发布 -->
+      <button class="confirm-btn done" id="confirmDoneBtn" aria-label="确认">
+        <svg viewBox="0 0 28 28" fill="none" stroke="#1a0a0f" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6,14 12,20 22,9"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<script src="assets/api.js"></script>
+<script>
+// ══════════════════════════════════════════════════════════
+//  步集 · 实时模板相机 v3
+//  容器模型：单个 4:3 容器（可横/竖）+ 可调分割线（占比）
+//   - 照片 cover 铺满整个容器
+//   - 取景区：直接显示照片 + 实心波点遮挡
+//   - 遮罩区：纯色蒙版 + 圆洞镂空露出照片（与取景区画面连续）
+//   - 占比滑块 = 遮罩区占比（0~100，50 为等比临界点）
+// ══════════════════════════════════════════════════════════
+
+const canvas = document.getElementById('compositeCanvas');
+const ctx = canvas.getContext('2d');
+const wrapper = document.getElementById('canvasWrapper');
+const permScreen = document.getElementById('permScreen');
+const fpsBadge = document.getElementById('fpsBadge');
+const flash = document.getElementById('flash');
+const confirmOverlay = document.getElementById('confirmOverlay');
+const confirmCanvas = document.getElementById('confirmCanvas');
+
+const DPR = window.devicePixelRatio || 2;
+
+// 状态
+const state = {
+  stream: null,
+  video: null,
+  demoMode: false,
+  orientation: 'portrait',   // portrait=竖屏(2:3,上下分割) / landscape=横屏(4:3,左右分割)
+  maskRatio: 0.5,            // 遮罩区占比 0~1（占比滑块/100；0.5 等比）
+  swapped: false,            // false=取景在上/遮罩在下
+  dotCount: 14,
+  dotBaseSize: 20,
+  variance: 0.5,             // 差异：大小离散度 0~1
+  shape: 'circle',           // circle / teardrop / star / char
+  char: '喵',
+  starPoints: 5,
+  maskColor: '#bfe5f0',      // 填充色（默认浅蓝，可自定义）
+  dotPositions: [],
+  facingMode: 'environment',
+  isCapturing: false,
+  frameCount: 0,
+  lastFpsTime: 0,
+  _dims: null,
+};
+
+// 预设填充色
+const PRESET_COLORS = ['#ffffff', '#bfe5f0', '#f5efe0', '#d4f1e8', '#ffd6e4', '#1a1a2e'];
+
+// 容器尺寸约束
+const MAX_W = 358;
+const MAX_H = 440;
+
+// 判断颜色亮度（水印反色）
+function isHexDark(hex) {
+  if (!hex || hex[0] !== '#') return false;
+  let h = hex.slice(1);
+  if (h.length === 3) h = h.split('').map(c => c + c).join('');
+  const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+  return (r * 299 + g * 587 + b * 114) / 1000 < 128;
+}
+
+// ── 容器尺寸（4:3 横 / 3:4 竖）─────────────────────────────
+// ── 布局：可变容器 + 取景/遮罩区矩形 ─────────────────────────
+//   每个区有"最大尺寸"（50 时达到）；占比偏离 50 时，一个区缩小、容器整体缩小
+//   v≤50：取景区=满，遮罩区=满×(v/50)
+//   v≥50：遮罩区=满，取景区=满×((100-v)/50)
+//   容器尺寸 = 两区之和（可变，50 时最大）
+//   裁切模型：元素固定在"50 时最大基准坐标系"（取景满 + 遮罩满）
+//   占比只决定可见窗口（从靠容器外侧的边裁掉一部分），元素绝对不动
+function getLayout() {
+  const v = state.maskRatio * 100;   // 0~100
+  const sw = state.swapped;
+
+  if (state.orientation === 'portrait') {
+    // 竖屏：上下分割。单区 4:3 横（宽 W、最大高 Hmax 固定）
+    const Hmax = Math.round(MAX_H / 2);
+    const W = Math.round(Hmax * 4 / 3);
+    // 各区可见尺寸：缩小的区从"靠外侧的边"裁
+    let frameVis, maskVis;
+    if (v <= 50) { frameVis = Hmax; maskVis = Hmax * v / 50; }
+    else         { maskVis = Hmax; frameVis = Hmax * (100 - v) / 50; }
+    frameVis = Math.round(frameVis); maskVis = Math.round(maskVis);
+    // 基准坐标系（固定，总高 2*Hmax）；offY = 可见窗口在基准系的顶部
+    let baseFrame, baseMask, offY, H;
+    if (sw) {
+      baseMask  = { x:0, y:0,    w:W, h:Hmax };
+      baseFrame = { x:0, y:Hmax, w:W, h:Hmax };
+      offY = Hmax - maskVis;   // 遮罩靠外=顶，从顶裁
+      H = maskVis + frameVis;
+    } else {
+      baseFrame = { x:0, y:0,    w:W, h:Hmax };
+      baseMask  = { x:0, y:Hmax, w:W, h:Hmax };
+      offY = Hmax - frameVis;  // 取景靠外=顶，从顶裁
+      H = frameVis + maskVis;
+    }
+    return { W, H, baseFrame, baseMask, offX: 0, offY };
+  } else {
+    // 横屏：左右分割。单区 3:4 竖（高 H、最大宽 Wmax 固定）
+    const Wmax = Math.round(MAX_W / 2);
+    const H = Math.round(Wmax * 4 / 3);
+    let frameVis, maskVis;
+    if (v <= 50) { frameVis = Wmax; maskVis = Wmax * v / 50; }
+    else         { maskVis = Wmax; frameVis = Wmax * (100 - v) / 50; }
+    frameVis = Math.round(frameVis); maskVis = Math.round(maskVis);
+    let baseFrame, baseMask, offX, W;
+    if (sw) {
+      baseMask  = { x:0,    y:0, w:Wmax, h:H };
+      baseFrame = { x:Wmax, y:0, w:Wmax, h:H };
+      offX = Wmax - maskVis;   // 遮罩靠外=左，从左裁
+      W = maskVis + frameVis;
+    } else {
+      baseFrame = { x:0,    y:0, w:Wmax, h:H };
+      baseMask  = { x:Wmax, y:0, w:Wmax, h:H };
+      offX = Wmax - frameVis;  // 取景靠外=左，从左裁
+      W = frameVis + maskVis;
+    }
+    return { W, H, baseFrame, baseMask, offX, offY: 0 };
+  }
+}
+
+function updateCanvasSize() {
+  const lay = getLayout();
+  const W = Math.max(1, lay.W), H = Math.max(1, lay.H);
+  canvas.width = W * DPR;
+  canvas.height = H * DPR;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  wrapper.style.width = W + 'px';
+  wrapper.style.height = H + 'px';
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(DPR, DPR);
+  state._dims = lay;
+}
+
+// ── 时钟 ──────────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  document.getElementById('statusTime').textContent =
+    `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;
+}
+updateClock();
+setInterval(updateClock, 30000);
+
+// ── 波点：seed + 差异 ───────────────────────────────────────
+const SIZE_SPREAD = 0.85;
+function sizeFromSeed(seed, v) { return 1 + (seed - 0.5) * 2 * v * SIZE_SPREAD; }
+
+// 重新随机所有位置（🎲 触发）
+function regenerateDots() {
+  const baseR = state.dotBaseSize;
+  const REF = 360, minGap = 3;
+  const reserve = baseR * 1.4;
+  const target = state.dotCount;
+  const maxAttempts = target * 150;
+  const dots = [];
+  let attempts = 0;
+  while (dots.length < target && attempts < maxAttempts) {
+    attempts++;
+    const seed = Math.random();
+    const margin = reserve / REF + 0.015;
+    const cand = {
+      x: margin + Math.random() * (1 - margin * 2),
+      y: margin + Math.random() * (1 - margin * 2),
+      seed, sizeMul: sizeFromSeed(seed, state.variance),
+    };
+    let collide = false;
+    for (let i = 0; i < dots.length; i++) {
+      const d = dots[i];
+      const dx = (cand.x - d.x) * REF, dy = (cand.y - d.y) * REF;
+      if (Math.hypot(dx, dy) < reserve * 2 + minGap) { collide = true; break; }
+    }
+    if (!collide) dots.push(cand);
+  }
+  state.dotPositions = dots;
+  syncCount(dots.length);
+}
+
+// 数量：增点追加 / 减点截断，已有点位置不变
+function setDotCount(target) {
+  const cur = state.dotPositions;
+  if (target <= cur.length) {
+    state.dotPositions = cur.slice(0, target);
+  } else {
+    const baseR = state.dotBaseSize;
+    const REF = 360, minGap = 3, reserve = baseR * 1.4;
+    const need = reserve * 2 + minGap, margin = reserve / REF + 0.015;
+    let attempts = 0;
+    const maxAttempts = (target - cur.length) * 300;
+    while (cur.length < target && attempts < maxAttempts) {
+      attempts++;
+      const seed = Math.random();
+      const cand = {
+        x: margin + Math.random() * (1 - margin * 2),
+        y: margin + Math.random() * (1 - margin * 2),
+        seed, sizeMul: sizeFromSeed(seed, state.variance),
+      };
+      let collide = false;
+      for (let i = 0; i < cur.length; i++) {
+        const d = cur[i];
+        const dx = (cand.x - d.x) * REF, dy = (cand.y - d.y) * REF;
+        if (Math.hypot(dx, dy) < need) { collide = true; break; }
+      }
+      if (!collide) cur.push(cand);
+    }
+    state.dotPositions = cur;
+  }
+  syncCount(state.dotPositions.length);
+}
+
+// 差异：位置不变，只重算大小
+function applyVariance() {
+  state.dotPositions.forEach(d => {
+    if (d.seed == null) d.seed = Math.random();
+    d.sizeMul = sizeFromSeed(d.seed, state.variance);
+  });
+}
+
+function syncCount(n) {
+  state.dotCount = n;
+  const lbl = document.getElementById('dotValue');
+  if (lbl) lbl.textContent = n;
+}
+
+// ── 形状路径 ────────────────────────────────────────────────
+function tracePath(c, cx, cy, r, shape) {
+  if (shape === 'star') {
+    const p = state.starPoints, inner = r * 0.42, rot = -Math.PI / 2;
+    for (let i = 0; i < p * 2; i++) {
+      const rr = (i % 2 === 0) ? r : inner;
+      const a = rot + i * Math.PI / p;
+      const x = cx + rr * Math.cos(a), y = cy + rr * Math.sin(a);
+      i === 0 ? c.moveTo(x, y) : c.lineTo(x, y);
+    }
+    c.closePath();
+  } else if (shape === 'teardrop') {
+    // 设计稿真实水滴 path（23.1×34.67，顶尖朝上），归一化高度=2r
+    const s = (2 * r) / 34.6667, ox = 11.5685, oy = 17.3333;
+    const P = (x, y) => [cx + (x - ox) * s, cy + (y - oy) * s];
+    let p = P(11.5685, 0);      c.moveTo(p[0], p[1]);
+    p = P(21.5741, 17.343);     c.lineTo(p[0], p[1]);
+    let a = P(26.0168, 25.0438), b = P(20.459, 34.6667), e = P(11.5685, 34.6667);
+    c.bezierCurveTo(a[0], a[1], b[0], b[1], e[0], e[1]);
+    a = P(2.67797, 34.6667); b = P(-2.87985, 25.0438); e = P(1.56295, 17.343);
+    c.bezierCurveTo(a[0], a[1], b[0], b[1], e[0], e[1]);
+    p = P(11.5685, 0);          c.lineTo(p[0], p[1]);
+    c.closePath();
+  } else {
+    c.arc(cx, cy, r, 0, Math.PI * 2);
+  }
+}
+
+// 喵字矢量 path（细线，viewBox 26×28）
+const MEOW_PATH = new Path2D('M24.18 10.23V27.21H22.62V25.74H11.55V27.21H9.99V10.23H24.18ZM11.55 24.21H16.32V18.63H11.55V24.21ZM17.88 24.21H22.62V18.63H17.88V24.21ZM11.55 17.16H16.32V11.76H11.55V17.16ZM17.88 11.76V17.16H22.62V11.76H17.88ZM12.66 0H14.22V3.57H19.89V0H21.42V3.57H25.62V5.1H21.42V8.43H19.89V5.1H14.22V8.46H12.66V5.1H8.85V3.57H12.66V0ZM7.08 2.52V24.27H5.52V22.35H1.56V24.96H0V2.52H7.08ZM1.56 20.82H5.52V4.05H1.56V20.82Z');
+const MEOW_W = 26, MEOW_H = 28;
+
+// 离屏画布（字符开窗用）
+let _off = null, _offCtx = null;
+function getOffscreen(w, h) {
+  if (!_off) { _off = document.createElement('canvas'); _offCtx = _off.getContext('2d'); }
+  const W = Math.ceil(w * DPR), H = Math.ceil(h * DPR);
+  if (_off.width !== W || _off.height !== H) { _off.width = W; _off.height = H; }
+  return { canvas: _off, ctx: _offCtx, scale: DPR };
+}
+
+// ── Demo 画面 ──────────────────────────────────────────────
+let _demoCache = null;
+function createDemoFrame() {
+  if (!_demoCache) { _demoCache = document.createElement('canvas'); _demoCache.width = 640; _demoCache.height = 480; }
+  const dc = _demoCache.getContext('2d');
+  const t = Date.now() / 3000;
+  const grd = dc.createLinearGradient(0, 0, 640, 480);
+  grd.addColorStop(0, `hsl(${(t * 30) % 360}, 50%, 55%)`);
+  grd.addColorStop(0.5, `hsl(${(t * 30 + 120) % 360}, 55%, 60%)`);
+  grd.addColorStop(1, `hsl(${(t * 30 + 240) % 360}, 50%, 50%)`);
+  dc.fillStyle = grd; dc.fillRect(0, 0, 640, 480);
+  dc.fillStyle = 'rgba(255,255,255,0.1)';
+  for (let i = 0; i < 6; i++) dc.fillRect(0, (i * 80 + t * 40) % 480, 640, 16);
+  dc.fillStyle = 'rgba(255,255,255,0.45)'; dc.font = 'bold 64px -apple-system';
+  dc.textAlign = 'center'; dc.textBaseline = 'middle'; dc.fillText('DEMO', 320, 240);
+  return _demoCache;
+}
+
+// cover 裁剪计算
+function computeCover(srcW, srcH, dstW, dstH) {
+  const sa = srcW / srcH, da = dstW / dstH;
+  let sw, sh, sx, sy;
+  if (sa > da) { sh = srcH; sw = srcH * da; sx = (srcW - sw) / 2; sy = 0; }
+  else { sw = srcW; sh = srcW / da; sx = 0; sy = (srcH - sh) / 2; }
+  return { sx, sy, sw, sh };
+}
+
+// ── 核心渲染 ────────────────────────────────────────────────
+function renderFrame() {
+  const dims = state._dims;
+  if (!dims) return;
+  const { W, H, baseFrame, baseMask, offX, offY } = dims;
+
+  // 画面源
+  let src, srcW = 640, srcH = 480;
+  if (state.demoMode || !state.video) { src = createDemoFrame(); }
+  else { src = state.video; srcW = src.videoWidth || 640; srcH = src.videoHeight || 480; }
+
+  // 清空
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#0a0a14';
+  ctx.fillRect(0, 0, W, H);
+
+  // 进入【固定基准坐标系】：所有元素绝对定位于此；占比只是平移裁切窗口
+  ctx.save();
+  ctx.translate(-offX, -offY);
+
+  // ① 取景区（基准矩形，尺寸恒定）：cover 同一张照片
+  if (baseFrame.w > 0.5 && baseFrame.h > 0.5) {
+    const cov = computeCover(srcW, srcH, baseFrame.w, baseFrame.h);
+    ctx.save();
+    ctx.beginPath(); ctx.rect(baseFrame.x, baseFrame.y, baseFrame.w, baseFrame.h); ctx.clip();
+    try { ctx.drawImage(src, cov.sx, cov.sy, cov.sw, cov.sh, baseFrame.x, baseFrame.y, baseFrame.w, baseFrame.h); } catch(e){}
+    ctx.restore();
+
+    // ② 取景区波点（实心遮挡）—— 位置固定在基准矩形，不随占比移动
+    state.dotPositions.forEach(dot => {
+      const px = baseFrame.x + dot.x * baseFrame.w;
+      const py = baseFrame.y + dot.y * baseFrame.h;
+      drawDot('mask', px, py, state.dotBaseSize * dot.sizeMul, baseFrame, null, src);
+    });
+  }
+
+  // ③ 遮罩区（基准矩形）：纯色蒙版 + 圆洞露出同一张照片（与取景一致）
+  if (baseMask.w > 0.5 && baseMask.h > 0.5) {
+    ctx.fillStyle = state.maskColor;
+    ctx.fillRect(baseMask.x, baseMask.y, baseMask.w, baseMask.h);
+
+    const covM = computeCover(srcW, srcH, baseMask.w, baseMask.h);
+    state.dotPositions.forEach(dot => {
+      const px = baseMask.x + dot.x * baseMask.w;
+      const py = baseMask.y + dot.y * baseMask.h;
+      drawDot('window', px, py, state.dotBaseSize * dot.sizeMul, baseMask, covM, src);
+    });
+  }
+
+  ctx.restore();  // 退出基准坐标系
+
+  // ④ 水印（canvas 坐标，右下角，自适应）
+  ctx.fillStyle = isHexDark(state.maskColor) ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.4)';
+  ctx.font = '600 9px -apple-system, PingFang SC';
+  ctx.textAlign = 'right';
+  ctx.fillText('步集 · BUJI', W - 8, H - 6);
+
+  // FPS
+  state.frameCount++;
+  const now = performance.now();
+  if (now - state.lastFpsTime > 1000) {
+    const fps = Math.round(state.frameCount * 1000 / (now - state.lastFpsTime));
+    fpsBadge.textContent = `${fps} fps`;
+    fpsBadge.style.color = fps >= 25 ? '#4eff91' : fps >= 15 ? '#ffcc00' : '#ff5555';
+    state.frameCount = 0; state.lastFpsTime = now;
+  }
+}
+
+// ── 单个波点 ────────────────────────────────────────────────
+//   mask  : 取景区实心遮挡（填 maskColor）
+//   window: 遮罩区镂空（cover 同一张照片到遮罩区 → 圆洞画面与取景区一致）
+//   region: 该波点所属区域矩形 {x,y,w,h}；cov: 该区域的 cover 裁剪参数
+function drawDot(mode, px, py, r, region, cov, src) {
+  const shape = state.shape;
+
+  if (shape === 'char') {
+    // "喵" 用精细矢量 path；其他字符走 fillText 兜底（可配置化）
+    const useMeow = (state.char === '喵');
+    const cs = useMeow ? (2 * r) / MEOW_H : 1;
+    if (mode === 'mask') {
+      ctx.save();
+      if (useMeow) {
+        ctx.translate(px, py); ctx.scale(cs, cs); ctx.translate(-MEOW_W / 2, -MEOW_H / 2);
+        ctx.fillStyle = state.maskColor; ctx.globalAlpha = 0.95;
+        ctx.fill(MEOW_PATH);
+      } else {
+        ctx.fillStyle = state.maskColor; ctx.globalAlpha = 0.95;
+        ctx.font = `700 ${Math.round(2 * r)}px -apple-system, PingFang SC, sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(state.char || '喵', px, py);
+      }
+      ctx.restore();
+    } else {
+      // window 模式：clip 到字符轮廓，在主 canvas 上直接 drawImage（与普通形状一致）
+      // 先记录当前"基准坐标系"变换矩阵，clip 后还原它，再画照片
+      const baseMatrix = ctx.getTransform();
+      ctx.save();
+      if (useMeow) {
+        // 将 MEOW_PATH 变换到 dot 中心坐标后 clip
+        ctx.translate(px, py); ctx.scale(cs, cs); ctx.translate(-MEOW_W / 2, -MEOW_H / 2);
+        ctx.clip(MEOW_PATH);
+      } else {
+        // fillText 兜底：用一个近似矩形 clip（因 ctx.clip 不支持文字）
+        ctx.beginPath();
+        ctx.rect(px - r, py - r, r * 2, r * 2);
+        ctx.clip();
+      }
+      // 还原为基准坐标系变换矩阵（精确还原，避免浮点累积误差）
+      ctx.setTransform(baseMatrix);
+      try { ctx.drawImage(src, cov.sx, cov.sy, cov.sw, cov.sh, region.x, region.y, region.w, region.h); } catch(e){}
+      ctx.restore();
+    }
+    return;
+  }
+
+  ctx.save();
+  ctx.beginPath();
+  tracePath(ctx, px, py, r, shape);
+  ctx.clip();
+  if (mode === 'mask') {
+    ctx.fillStyle = state.maskColor;
+    ctx.globalAlpha = 0.95;
+    ctx.fillRect(px - r * 1.6, py - r * 1.6, r * 3.2, r * 3.2);
+  } else {
+    // 圆洞露出遮罩区 cover 的同一张照片 → 与取景区画面一致
+    try { ctx.drawImage(src, cov.sx, cov.sy, cov.sw, cov.sh, region.x, region.y, region.w, region.h); } catch(e){}
+  }
+  ctx.restore();
+}
+
+// ── 渲染循环 ────────────────────────────────────────────────
+let _animFrame;
+function renderLoop() { renderFrame(); _animFrame = requestAnimationFrame(renderLoop); }
+
+// ── 摄像头 ────────────────────────────────────────────────
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: state.facingMode, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false,
+    });
+    state.stream = stream;
+    const video = document.createElement('video');
+    video.srcObject = stream; video.autoplay = true; video.playsInline = true; video.muted = true;
+    await video.play();
+    state.video = video;
+    permScreen.classList.add('hidden');
+    state.lastFpsTime = performance.now();
+    if (!_animFrame) renderLoop();
+  } catch(e) {
+    console.error('摄像头错误:', e);
+    alert('无法访问摄像头：\n' + e.message + '\n\n将自动切换到演示模式。');
+    startDemoMode();
+  }
+}
+function startDemoMode() {
+  state.demoMode = true; state.video = null;
+  permScreen.classList.add('hidden');
+  state.lastFpsTime = performance.now();
+  if (!_animFrame) renderLoop();
+}
+
+// ── 快门 → confirming 态 ───────────────────────────────────
+// 将当前合成帧绘制到全屏 confirmCanvas，然后展示确认层
+function takePhoto() {
+  if (state.isCapturing) return;
+  state.isCapturing = true;
+  const shutterBtn = document.getElementById('shutterBtn');
+  shutterBtn.classList.add('capturing');
+  flash.classList.add('active');
+  setTimeout(() => flash.classList.remove('active'), 120);
+
+  // 将当前合成帧拷贝到确认画布（全屏拉伸以填满 phone-shell）
+  const shell = document.getElementById('phoneShell');
+  const sw = shell.clientWidth, sh = shell.clientHeight;
+  confirmCanvas.width = sw * DPR;
+  confirmCanvas.height = sh * DPR;
+  confirmCanvas.style.width = sw + 'px';
+  confirmCanvas.style.height = sh + 'px';
+  const cctx = confirmCanvas.getContext('2d');
+  // 黑底
+  cctx.fillStyle = '#000';
+  cctx.fillRect(0, 0, confirmCanvas.width, confirmCanvas.height);
+  // 将合成帧居中 contain 绘制到全屏
+  const srcW = canvas.width, srcH = canvas.height;
+  const dstW = confirmCanvas.width, dstH = confirmCanvas.height;
+  const scale = Math.min(dstW / srcW, dstH / srcH);
+  const dx = (dstW - srcW * scale) / 2;
+  const dy = (dstH - srcH * scale) / 2;
+  cctx.drawImage(canvas, 0, 0, srcW, srcH, dx, dy, srcW * scale, srcH * scale);
+
+  shutterBtn.classList.remove('capturing');
+  setTimeout(() => {
+    confirmOverlay.classList.add('show');
+    state.isCapturing = false;
+  }, 120);
+}
+
+// ── 镜头翻转 ────────────────────────────────────────────────
+async function flipCamera() {
+  if (!state.stream) return;
+  state.stream.getTracks().forEach(t => t.stop());
+  state.stream = null; state.video = null;
+  wrapper.style.transition = 'transform 0.35s ease';
+  wrapper.style.transform = 'rotateY(180deg)';
+  state.facingMode = state.facingMode === 'environment' ? 'user' : 'environment';
+  setTimeout(async () => { wrapper.style.transform = 'rotateY(0deg)'; await startCamera(); }, 350);
+}
+
+// ── 填充色 swatch 渲染 ──────────────────────────────────────
+function renderColorBar() {
+  const bar = document.getElementById('colorBar');
+  // 清掉旧 swatch（保留末尾的 + 按钮）
+  bar.querySelectorAll('.color-swatch').forEach(s => s.remove());
+  const addBtn = bar.querySelector('.color-add');
+  PRESET_COLORS.forEach(col => {
+    const sw = document.createElement('div');
+    sw.className = 'color-swatch' + (col.toLowerCase() === state.maskColor.toLowerCase() ? ' active' : '');
+    sw.style.background = col;
+    sw.title = col;
+    sw.addEventListener('click', () => { state.maskColor = col; document.getElementById('colorPicker').value = col; renderColorBar(); });
+    bar.insertBefore(sw, addBtn);
+  });
+}
+
+// ── 事件 ──────────────────────────────────────────────────
+document.getElementById('permBtn').addEventListener('click', startCamera);
+document.getElementById('demoBtn').addEventListener('click', startDemoMode);
+document.getElementById('shutterBtn').addEventListener('click', takePhoto);
+document.getElementById('flipBtn').addEventListener('click', flipCamera);
+// 叉（取消）：关闭确认层，恢复实时预览（shooting 态）
+document.getElementById('confirmCancelBtn').addEventListener('click', () => {
+  confirmOverlay.classList.remove('show');
+});
+
+// ── embed 语境 + 跳转封装 ──────────────────────────────────
+const IS_EMBED = location.hash.includes('embed=1');
+function nav(page, params) {
+  const parts = [];
+  if (IS_EMBED) parts.push('embed=1');
+  if (params) parts.push(params);
+  location.href = page + (parts.length ? '#' + parts.join('&') : '');
+}
+// buji 容器内：发 postMessage；独立打开：整页跳转
+function go(msg, page, params) {
+  if (IS_EMBED) parent.postMessage(msg, '*');
+  else nav(page, params);
+}
+
+// 勾（确认）：存草稿 → 去发布
+document.getElementById('confirmDoneBtn').addEventListener('click', () => {
+  // ★ 用 JPEG(质量0.82) 而非 PNG：手机 DPR 下 confirmCanvas 高达 ~1290×3036，
+  //   PNG 无损编码 base64 常达 8~15MB，会超过后端 5MB/10MB 上限并在 iOS 自签名
+  //   HTTPS 下触发 "Load failed"。JPEG 压缩后通常仅几百 KB，稳过限制。
+  try { localStorage.setItem('buji_draft', confirmCanvas.toDataURL('image/jpeg', 0.82)); } catch (e) {}
+  confirmOverlay.classList.remove('show');
+  go('goPublish', 'publish-page.html');
+});
+
+// embed 模式：顶部左键（闪光灯）→ 返回箭头，返回发现页
+if (IS_EMBED) {
+  document.body.classList.add('embed');
+
+  // ── 等比缩放：让整个相机页（含快门键）恰好填满 iframe ──
+  // 设计尺寸 430×1012；按 iframe 实际 w/h 求最小 scale，保证全内容可见
+  const _shell = document.getElementById('phoneShell');
+  function fitShellToIframe() {
+    const sw = 430, sh = 1012;
+    const scale = Math.min(window.innerWidth / sw, window.innerHeight / sh);
+    // 用 important 覆盖 CSS 里的 `transform: scale(1) !important`（否则 inline 无 important 不生效）
+    _shell.style.setProperty('transform', `scale(${Math.min(1, scale)})`, 'important');
+  }
+  fitShellToIframe();
+  window.addEventListener('resize', fitShellToIframe);
+
+  const backBtn = document.getElementById('topLeftBtn');
+  if (backBtn) {
+    backBtn.title = '返回';
+    backBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>';
+    backBtn.addEventListener('click', () => go('closeOverlay', 'discover-page.html', 'recorded=1'));
+  }
+}
+
+// 横竖切换
+document.querySelectorAll('.seg-btn[data-orient]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.seg-btn[data-orient]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.orientation = btn.dataset.orient;
+    updateCanvasSize();
+  });
+});
+
+// 主图上下交换
+document.getElementById('swapBtn').addEventListener('click', () => {
+  state.swapped = !state.swapped;
+  document.getElementById('swapBtn').textContent = state.swapped ? '⇅ 主图在下' : '⇅ 主图在上';
+  updateCanvasSize();   // swap 改变布局（取景/遮罩位置 + 裁切偏移），需立即重算
+  wrapper.classList.remove('swapping'); void wrapper.offsetWidth; wrapper.classList.add('swapping');
+});
+
+// ── 形状按钮：由后端 /v1/config 下发，动态渲染；事件委托 ──
+const DEFAULT_SHAPES = [
+  { id: 'circle',   name: '波点',   icon: '●',  params: {} },
+  { id: 'teardrop', name: '雨滴',   icon: '💧', params: {} },
+  { id: 'star',     name: '五角星', icon: '★',  params: { points: 5, innerRatio: 0.42 } },
+  { id: 'char',     name: '喵',     icon: '喵', params: { char: '喵' } },
+];
+let SHAPES = DEFAULT_SHAPES;
+let SHAPE_PARAMS = {}; // id → params
+
+function renderShapeBar(shapes) {
+  const bar = document.getElementById('shapeBar');
+  bar.innerHTML = '';
+  SHAPE_PARAMS = {};
+  shapes.forEach((s, i) => {
+    SHAPE_PARAMS[s.id] = s.params || {};
+    const btn = document.createElement('button');
+    btn.className = 'shape-btn' + (s.id === state.shape ? ' active' : (state.shape == null && i === 0 ? ' active' : ''));
+    btn.dataset.shape = s.id;
+    btn.title = s.name || s.id;
+    btn.textContent = s.icon || s.name || s.id;
+    // 字符形状按钮（如喵）用小一号字号
+    if (s.id === 'char' || (s.icon && s.icon.length === 1 && /[\u4e00-\u9fa5]/.test(s.icon))) {
+      btn.style.fontSize = '13px';
+      btn.style.fontWeight = '600';
+    }
+    bar.appendChild(btn);
+  });
+}
+
+// 事件委托：点击 shape-btn 切形状 + 同步 state.char
+document.getElementById('shapeBar').addEventListener('click', (e) => {
+  const btn = e.target.closest('.shape-btn');
+  if (!btn) return;
+  document.querySelectorAll('#shapeBar .shape-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const id = btn.dataset.shape;
+  state.shape = id;
+  // 字符形状：从配置里取 char（未配置则沿用默认"喵"）
+  const p = SHAPE_PARAMS[id] || {};
+  if (id === 'char' && p.char) state.char = p.char;
+  if (id === 'star' && p.points) state.starPoints = p.points;
+});
+
+async function loadShapes() {
+  try {
+    const cached = localStorage.getItem('buji_config_version');
+    const q = cached ? `?version=${encodeURIComponent(cached)}` : '';
+    const data = await api('GET', '/v1/config' + q);
+    if (data.changed && Array.isArray(data.shapes) && data.shapes.length) {
+      SHAPES = data.shapes;
+      localStorage.setItem('buji_config_version', data.version);
+      localStorage.setItem('buji_config_shapes', JSON.stringify(data.shapes));
+      renderShapeBar(SHAPES);
+    } else if (!data.changed) {
+      // 版本未变 → 使用本地缓存
+      const cachedShapes = localStorage.getItem('buji_config_shapes');
+      if (cachedShapes) {
+        try { SHAPES = JSON.parse(cachedShapes); renderShapeBar(SHAPES); } catch(e) {}
+      }
+    }
+  } catch (e) {
+    console.warn('[camera] 加载形状配置失败，使用默认:', e.message);
+  }
+}
+
+// 占比（遮罩占比，位置不变）
+document.getElementById('ratioSlider').addEventListener('input', e => {
+  const v = parseInt(e.target.value);
+  state.maskRatio = v / 100;
+  document.getElementById('ratioValue').textContent = v;
+  updateCanvasSize();   // 占比改变 → 容器整体尺寸随之变化
+});
+// 差异（位置不变，只变大小）
+document.getElementById('varSlider').addEventListener('input', e => {
+  state.variance = parseInt(e.target.value) / 100;
+  document.getElementById('varValue').textContent = e.target.value;
+  applyVariance();
+});
+// 大小（只缩放，位置不变）
+document.getElementById('sizeSlider').addEventListener('input', e => {
+  state.dotBaseSize = parseInt(e.target.value);
+  document.getElementById('sizeValue').textContent = e.target.value;
+});
+// 数量（增减，位置不变）
+document.getElementById('dotSlider').addEventListener('input', e => {
+  setDotCount(parseInt(e.target.value));
+});
+
+// 自定义填充色（系统取色器）
+document.getElementById('colorPicker').addEventListener('input', e => {
+  state.maskColor = e.target.value;
+  renderColorBar();
+});
+
+// 随机位置
+document.getElementById('randomBtn').addEventListener('click', () => {
+  regenerateDots();
+  const btn = document.getElementById('randomBtn');
+  btn.style.transform = 'rotate(180deg)';
+  setTimeout(() => btn.style.transform = '', 300);
+});
+
+// 变焦
+document.querySelectorAll('.zoom-btn').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.zoom-btn').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+  });
+});
+
+function showToast(msg) {
+  const t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText = `position:absolute;top:60px;left:50%;transform:translateX(-50%);
+    background:rgba(0,0,0,0.85);color:#fff;font-size:12px;padding:8px 16px;border-radius:20px;
+    z-index:300;backdrop-filter:blur(8px);white-space:nowrap;animation:fadeup 2.2s forwards;`;
+  document.getElementById('phoneShell').appendChild(t);
+  setTimeout(() => t.remove(), 2300);
+}
+
+// ── 初始化 ────────────────────────────────────────────────
+function init() {
+  updateCanvasSize();
+  regenerateDots();
+  renderColorBar();
+  // 先本地兜底渲染形状按钮（离线可用）；随后异步拉后端配置覆盖
+  renderShapeBar(DEFAULT_SHAPES);
+  loadShapes();
+  state.lastFpsTime = performance.now();
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    // 浏览器不支持 → 停留在兜底页（提示 + 演示模式入口）
+    document.querySelector('.perm-desc').textContent = '浏览器不支持摄像头访问，请使用演示模式体验。';
+    return;
+  }
+  // ★ 直接请求摄像头授权（触发系统弹窗），跳过「点击开启相机」中间页：
+  //   先隐藏引导页 → getUserMedia 弹系统授权 → 通过则直接进取景框；
+  //   被拒/失败时 startCamera() 内部会兜底切换演示模式。
+  document.getElementById('permScreen').classList.add('hidden');
+  startCamera();
+}
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>步集 · 相册地图</title>
+<style>
+  @font-face {
+    font-family: 'momozhuanji';
+    src: url('assets/fonts/momozhuanji.ttf') format('truetype');
+    font-weight: 500; font-display: swap;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    background: #0a0a0f; font-family: -apple-system, "PingFang SC", sans-serif;
+    min-height: 100dvh; overflow: hidden; display: flex; align-items: center; justify-content: center;
+    color: #2e383f; user-select: none;
+  }
+  .phone-shell {
+    width: 430px; height: 932px; background: #faf9f9; border-radius: 54px;
+    box-shadow: 0 0 0 2px #2a2a30, 0 30px 80px rgba(0,0,0,0.8);
+    overflow: hidden; position: relative;
+  }
+  @media (max-height: 960px) { .phone-shell { transform: scale(0.86); transform-origin: center; } }
+  @media (max-height: 820px) { .phone-shell { transform: scale(0.74); transform-origin: center; } }
+  @media (max-height: 720px) { .phone-shell { transform: scale(0.64); transform-origin: center; } }
+
+  .status-bar { position: absolute; top: 0; left: 0; right: 0; height: 54px; z-index: 30; }
+  .status-time {
+    position: absolute; left: 59px; top: 21px; font-size: 17px; font-weight: 600; color: #141414;
+    font-family: -apple-system, sans-serif; letter-spacing: 0;
+  }
+  .status-icons { position: absolute; right: 28px; top: 22px; display: flex; gap: 6px; align-items: center; color: #141414; }
+  .status-icons svg { display: block; }
+
+  .album-date {
+    position: absolute; left: 39px; top: 94px; z-index: 20;
+    font-family: 'momozhuanji', cursive; font-size: 32px; line-height: 40px; color: #2e383f;
+  }
+  .album-caption {
+    position: absolute; left: 31px; top: 146px; z-index: 20;
+    font-family: 'momozhuanji', cursive; font-size: 32px; line-height: 40px; color: #2e383f;
+    letter-spacing: 2px;
+  }
+
+  /* 图片舞台（figma 容器 y=203 起）—— 6 点位固定，超出裁切 */
+  .stage {
+    position: absolute; left: 0; top: 203px; right: 0; bottom: 0;
+    overflow: hidden; touch-action: none; cursor: grab; z-index: 10;
+  }
+  .stage.dragging { cursor: grabbing; }
+
+  .photo-card {
+    position: absolute; top: 0; left: 0; border-radius: 20px; overflow: hidden;
+    box-shadow: 0 0 0 1px #ffffff, 0 4px 16px rgba(0,0,0,0.06); will-change: transform;
+  }
+  .photo-card img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+
+  /* ── 大图卡片模式（1张 / 2-3张）：复用发现页 deck 视觉 + 横滑切换 ── */
+  /*    容器位置与发现页 deck 完全一致（left:35 top:253），和相册日期/文案天然对齐 */
+  .album-deck {
+    position: absolute; left: 35px; top: 253px;
+    width: 360px; height: 419px; z-index: 10;
+    display: none; touch-action: none;
+  }
+  .album-card {
+    position: absolute; left: 0; top: 0; width: 360px; height: 419px;
+    border-radius: 20px; overflow: hidden; cursor: grab; background: #e8eef3;
+    box-shadow: 0 10px 30px rgba(40,60,80,0.18); will-change: transform;
+  }
+  .album-card img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; -webkit-user-drag: none; }
+  .album-deck.single .album-card { cursor: default; }   /* 单张：不可拖拽切换 */
+
+  .home-ind { position: absolute; left: 50%; bottom: 9px; transform: translateX(-50%); width: 139px; height: 5px; border-radius: 100px; background: #000; z-index: 40; }
+
+  /* 顶部下滑提示（进入相册地图页 3 秒后淡出）*/
+  .swipe-hint {
+    position: absolute; top: 0; left: 0; right: 0; height: 130px; z-index: 35;
+    pointer-events: none; opacity: 0;
+    background: linear-gradient(to bottom, rgba(206,233,242,0.92) 0%, rgba(219,235,241,0.45) 60%, rgba(219,235,241,0) 100%);
+  }
+  .swipe-hint.show {
+    animation: hintShow 3s cubic-bezier(0.22,1,0.36,1) forwards;
+  }
+  @keyframes hintShow {
+    0%   { opacity: 0; }
+    13%  { opacity: 1; }
+    87%  { opacity: 1; }
+    100% { opacity: 0; }
+  }
+  .swipe-hint-arrow {
+    position: absolute; left: 50%; top: 62px; transform: translateX(-50%);
+    width: 22px; height: 22px; animation: arrowBobDown 1.6s ease-in-out 3;
+  }
+  @keyframes arrowBobDown { 0%,100%{ transform: translateX(-50%) translateY(0);} 50%{ transform: translateX(-50%) translateY(6px);} }
+  .swipe-hint-text {
+    position: absolute; left: 0; right: 0; top: 88px; text-align: center;
+    font-size: 13px; color: #2E383F; letter-spacing: 1px; font-weight: 500;
+    font-family: -apple-system, "PingFang SC", sans-serif;
+  }
+
+  /* embed 模式（被 buji.html 容器以 iframe 嵌入时）：去掉外壳，撑满 iframe */
+  body.embed { background: transparent; }
+  body.embed .phone-shell { box-shadow: none; border-radius: 0; position: absolute; top: 0; left: 0; right: 0; bottom: 0; width: auto; height: auto; transform: none !important; }
+</style>
+</head>
+<body>
+
+<div class="phone-shell">
+  <div class="status-bar">
+    <div class="status-time">9:41</div>
+    <div class="status-icons">
+      <svg width="18" height="12" viewBox="0 0 18 12" fill="#141414"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="2.5" width="3" height="9.5" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>
+      <svg width="17" height="12" viewBox="0 0 17 12" fill="#141414"><path d="M8.5 2.2c2.6 0 5 1 6.8 2.7l1.3-1.4A11.4 11.4 0 0 0 8.5.2 11.4 11.4 0 0 0 .4 3.5l1.3 1.4A9.4 9.4 0 0 1 8.5 2.2zm0 3.6c1.6 0 3.1.6 4.2 1.7l1.3-1.4a8 8 0 0 0-11 0l1.3 1.4A6 6 0 0 1 8.5 5.8zm0 3.5c.7 0 1.4.3 1.9.8l-1.9 2-1.9-2c.5-.5 1.2-.8 1.9-.8z"/></svg>
+      <svg width="27" height="13" viewBox="0 0 27 13" fill="none"><rect x="0.5" y="0.5" width="22" height="12" rx="3.5" stroke="#141414" stroke-opacity="0.4"/><rect x="2" y="2" width="18" height="9" rx="2" fill="#141414"/><path d="M24.5 4.5v4c1-.4 1-3.6 0-4z" fill="#141414" fill-opacity="0.4"/></svg>
+    </div>
+  </div>
+
+  <div class="album-date" id="albumDate">6月23日</div>
+  <div class="album-caption" id="caption">本人今天又出去玩了</div>
+
+  <div class="stage" id="stage"></div>
+
+  <!-- 大图卡片模式容器（1张/2-3张时显示，≥4张隐藏走地图）；cardA 在 DOM 后=上层=front -->
+  <div class="album-deck" id="albumDeck">
+    <div class="album-card" id="albumCardB"><img alt=""></div>
+    <div class="album-card" id="albumCardA"><img alt=""></div>
+  </div>
+
+  <!-- 顶部下滑提示（进入页面后 3 秒淡出） -->
+  <div class="swipe-hint" id="swipeHint">
+    <svg class="swipe-hint-arrow" viewBox="0 0 22 22" fill="none">
+      <path d="M5 8l6 6 6-6" stroke="#2E383F" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div class="swipe-hint-text">下滑返回发现</div>
+  </div>
+
+  <div class="home-ind"></div>
+</div>
+
+<script src="assets/api.js"></script>
+<script>
+// ══════════════════════════════════════════════════════════
+//  步集 · 相册地图 —— 展示逻辑（水平列轮转 + 6 点位 + 垂直锁定）
+//   数据源：/v1/posts；无数据时保留默认演示图。
+//   ★ 内容推送 ★
+//     展示模式完全不变；仅当某列轮出视口外(wrap)时，悄悄把它换成序列里的下一张照片。
+//     于是一直左右滑，所有照片都会轮流流过「第一排」焦点（并联动左上文案）。
+// ══════════════════════════════════════════════════════════
+
+const stage = document.getElementById('stage');
+
+// 固定的 8 个展示槽位高度（对齐 figma 错落布局；不随内容变化）
+const SLOT_HEIGHTS = [361, 333, 357, 361, 360, 332, 332, 403];
+
+// 地图内容源（每项 {imageUrl,date,caption}）：默认演示图；真实成片(≥6张)时替换。
+// ★ 8 个展示位循环显示这 N 张「唯一」内容；滚出视口的位按 nextC 递增取「下一张」，
+//   保证焦点连续滑动时严格遍历所有图、不会连续看到同一张（N 即唯一图数，非固定 8）。
+let MAP_SRC = [
+  { imageUrl: 'assets/album/p4.png', date: '6月23日', caption: '本人今天又出去玩了' },
+  { imageUrl: 'assets/album/p8.png', date: '6月22日', caption: '看到一棵很好看的树' },
+  { imageUrl: 'assets/album/p1.png', date: '6月20日', caption: '水里的倒影像另一个我' },
+  { imageUrl: 'assets/album/p2.png', date: '6月18日', caption: '冰美式续命的一天' },
+  { imageUrl: 'assets/album/p3.png', date: '6月15日', caption: '路边的小野花' },
+  { imageUrl: 'assets/album/p5.png', date: '6月12日', caption: '阳光穿过叶子的缝隙' },
+  { imageUrl: 'assets/album/p6.png', date: '6月10日', caption: '粉色的天空软软的' },
+  { imageUrl: 'assets/album/p7.png', date: '6月08日', caption: '条纹和星星的下午' },
+];
+let N = MAP_SRC.length;
+
+// "YYYY-MM-DD" → "M月D日"
+function formatDate(s) {
+  if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return s || '';
+  const [, m, d] = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return `${parseInt(m)}月${parseInt(d)}日`;
+}
+
+const CW = 270, GAP = 18, COL_STEP = CW + GAP;   // 列步进 288
+const BASE_TOP = 37;                             // 第一排距 stage 顶（永远不变）
+const COL_START = [0, 87, 87, 142];              // 列错落起始 y（figma 实测）
+function colExtra(s) {
+  const f = Math.floor(s), fr = s - f;
+  const a = COL_START[((f % 4) + 4) % 4];
+  const b = COL_START[(((f + 1) % 4) + 4) % 4];
+  return a * (1 - fr) + b * fr;
+}
+
+function makePhotoCard(src, w, h) {
+  const card = document.createElement('div');
+  card.className = 'photo-card';
+  card.style.width = w + 'px'; card.style.height = h + 'px';
+  const img = document.createElement('img');
+  img.src = src; img.draggable = false;
+  card.appendChild(img);
+  return { card, img };
+}
+
+const count = 8;                                  // 8 个展示位（4 列 × 2 排）
+const numCols = Math.ceil(count / 2);             // 4
+const centerCol = Math.floor((numCols - 1) / 2);  // 1（中列）
+
+let _items = [];
+
+// ── 内容分配（逻辑列模型，保证焦点遍历所有唯一图）──────────
+//   每个展示位有 absCol（逻辑列号）；wrap 到视口另一侧时 ±numCols。
+//   row0（高度最高排=焦点排）内容 = MAP_SRC[absCol]；随滑动 absCol 连续 ±1，
+//   所以「高度最高位置」会依次轮播到每一张图（焦点严格遍历全部 N 张，不遗漏）。
+//   row1（第二排）内容相对 row0 偏移 floor(N/2)：
+//     · floor(N/2) 恒非 N 的整数倍 → 同一竖列上下两张必为不同图；
+//     · N≥6 时同屏可见的 3 列（上下 6 张）也互不相同。
+function contentIdxOf(it) {
+  const off = it.row === 1 ? Math.max(1, Math.floor(N / 2)) : 0;
+  return (((it.absCol + off) % N) + N) % N;
+}
+
+// 建/重建 8 个展示位（数据源变更后可调用一次刷新）
+//   高度恒用 SLOT_HEIGHTS（错落布局稳定）；初始 absCol=col-centerCol，
+//   使中列(centerCol) row0 = MAP_SRC[0]（最新成片落在焦点位）。
+function buildItems() {
+  _items.forEach(it => it.el.remove());
+  _items = [];
+  for (let i = 0; i < count; i++) {
+    const col = Math.floor(i / 2), row = i % 2;
+    const rowYOffset = row === 0 ? 0 : (SLOT_HEIGHTS[col * 2] + GAP);
+    const it = { el: null, img: null, col, row, rowYOffset, absCol: col - centerCol, cIdx: 0, _s: null };
+    it.cIdx = contentIdxOf(it);
+    const { card, img } = makePhotoCard(MAP_SRC[it.cIdx].imageUrl, CW, SLOT_HEIGHTS[i]);
+    stage.appendChild(card);
+    it.el = card; it.img = img;
+    _items.push(it);
+  }
+}
+buildItems();
+
+let rotation = 0, panY = 0;
+function cx0() { return stage.clientWidth / 2 - CW / 2; }   // 中列居中（80）
+
+function wrapS(s) {
+  const n = numCols;
+  let w = ((s % n) + n) % n;
+  if (w > n / 2) w -= n;
+  return w;
+}
+
+function place(anim) {
+  const c0 = cx0();
+  _items.forEach(it => {
+    const s = wrapS(it.col - centerCol - rotation);
+    const x = c0 + s * COL_STEP;
+    const y = BASE_TOP + colExtra(s) + it.rowYOffset + panY;
+    const jumped = it._s != null && Math.abs(s - it._s) > 1.5;
+    // ★ wrap 到视口另一侧 → 逻辑列 ±numCols，内容随之更新（用户看不到突变）。
+    //   s 变大（绕到右侧）代表更后面的内容 → absCol += numCols；反之 -=。
+    //   如此焦点(row0)滑动时 absCol 连续 ±1，依次轮播到每一张唯一图。
+    if (jumped) {
+      it.absCol += (s > it._s) ? numCols : -numCols;
+      it.cIdx = contentIdxOf(it);
+      it.img.src = MAP_SRC[it.cIdx].imageUrl;
+    }
+    it.el.style.transition = (anim && !jumped) ? 'transform 0.34s cubic-bezier(0.22,1,0.36,1)' : 'none';
+    it.el.style.transform = `translate(${x}px, ${y}px)`;
+    it._s = s;
+  });
+}
+
+function updateTop() {
+  let best = null, bestD = Infinity;
+  _items.forEach(it => {
+    const s = wrapS(it.col - centerCol - rotation);   // ★ 用 wrap 后的视觉列槽，才能正确锁定中列
+    const d = Math.abs(s) * 2 + it.row;               // 越接近中列、第一排 = 焦点
+    if (d < bestD) { bestD = d; best = it; }
+  });
+  if (best) {
+    // 聚焦「最上方最中央」的图片 → 映射其专属日期/文案到左上角
+    document.getElementById('albumDate').textContent = MAP_SRC[best.cIdx].date;
+    document.getElementById('caption').textContent = MAP_SRC[best.cIdx].caption;
+  }
+}
+
+place(false); updateTop();
+
+// ── 拖拽：水平列轮转（惯性+列吸附）；垂直橡皮筋锁定（松手回弹，第一排距顶 37 不变）──────
+let dragging = false, sx0, sy0, r0, vrot = 0, lastRot = 0, lastT = 0, raf = null;
+const PANY_MAX = 52;
+
+stage.addEventListener('pointerdown', e => {
+  cancelAnimationFrame(raf);
+  dragging = true; stage.classList.add('dragging');
+  sx0 = e.clientX; sy0 = e.clientY; r0 = rotation;
+  vrot = 0; lastRot = rotation; lastT = performance.now();
+  stage.setPointerCapture && stage.setPointerCapture(e.pointerId);
+});
+stage.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  const now = performance.now(), dt = now - lastT;
+  const nr = r0 - (e.clientX - sx0) / COL_STEP;
+  if (dt > 0) vrot = 0.75 * vrot + 0.25 * (nr - lastRot) / dt;
+  lastRot = nr; lastT = now;
+  rotation = nr;
+  const dy = e.clientY - sy0;
+  panY = PANY_MAX * Math.tanh(dy / 160);   // 垂直只给橡皮筋手感
+  place(false); updateTop();
+});
+function onUp() {
+  if (!dragging) return;
+  dragging = false; stage.classList.remove('dragging');
+  cancelAnimationFrame(raf);
+  let last = performance.now();
+  const tick = (now) => {
+    const dt = Math.min(40, now - last); last = now;
+    panY += (0 - panY) * 0.2;
+    let vDone = Math.abs(panY) < 0.4;
+    if (vDone) panY = 0;
+    let hDone = false;
+    if (Math.abs(vrot) > 0.0006) {
+      rotation += vrot * dt; vrot *= Math.pow(0.94, dt / 16);
+    } else {
+      const target = Math.round(rotation), diff = target - rotation;
+      rotation += diff * 0.16;
+      if (Math.abs(diff) < 0.0015) { rotation = target; hDone = true; }
+    }
+    place(false); updateTop();
+    if (hDone && vDone) { place(false); updateTop(); return; }
+    raf = requestAnimationFrame(tick);
+  };
+  raf = requestAnimationFrame(tick);
+}
+stage.addEventListener('pointerup', onUp);
+stage.addEventListener('pointercancel', onUp);
+
+// ── 进入页面时：3 秒后淡出的下滑提示 ──────────────────
+(function initSwipeHint() {
+  const hint = document.getElementById('swipeHint');
+  if (!hint) return;
+  // 强制 reflow 后触发动画
+  void hint.offsetWidth;
+  hint.classList.add('show');
+  setTimeout(() => hint.classList.remove('show'), 3000);
+})();
+
+// ── embed 语境 + 整页「下滑」回发现页 ──────────────
+const EMBED = (new URLSearchParams(location.search).get('embed') || new URLSearchParams(location.hash.slice(1)).get('embed')) === '1';
+if (EMBED) document.body.classList.add('embed');
+// 跳转封装：buji 容器内发 postMessage 触发下滑动效；独立打开则整页跳转
+function nav(page, params) {
+  const parts = [];
+  if (EMBED) parts.push('embed=1');
+  if (params) parts.push(params);
+  location.href = page + (parts.length ? '#' + parts.join('&') : '');
+}
+function go(msg, page, params) {
+  if (EMBED) parent.postMessage(msg, '*');
+  else nav(page, params);
+}
+
+// ══════════════════════════════════════════════════════════
+//  大图卡片模式（1张 / 2-3张）—— 复用发现页卡片切换交互
+//  1 张：单图正放大图展示（不可切换）
+//  2~3 张：叠放卡片，横滑跟手 + 松手切换（联动左上日期/文案）
+// ══════════════════════════════════════════════════════════
+const albumDeck = document.getElementById('albumDeck');
+const FRONT_T   = 'translate(0px,0px) rotate(2deg) scale(1)';
+const BACK_T    = 'translate(8px,14px) rotate(-5deg) scale(0.95)';
+const SINGLE_T  = 'translate(0px,0px) rotate(0deg) scale(1)';   // 单张正放
+const CARD_EASE = 'cubic-bezier(.34,.06,.2,1)';
+
+let POSTS = [], cardIndex = 0, cardAnimating = false;
+let cardFront = document.getElementById('albumCardA');   // DOM 后=上层=front
+let cardBack  = document.getElementById('albumCardB');
+
+function cardFill(el, idx) {
+  const n = POSTS.length; if (!n) return;
+  const p = POSTS[((idx % n) + n) % n];
+  el.querySelector('img').src = p.imageUrl;
+}
+function cardPlace(el, t, z) { el.style.transform = t; el.style.zIndex = z; }
+function cardSettle() {
+  cardFront.style.transition = cardBack.style.transition = 'none';
+  cardPlace(cardFront, FRONT_T, 2);
+  cardPlace(cardBack, BACK_T, 1);
+}
+function cardUpdateMeta() {
+  const n = POSTS.length; if (!n) return;
+  const p = POSTS[((cardIndex % n) + n) % n];
+  document.getElementById('albumDate').textContent = formatDate(p.date);
+  document.getElementById('caption').textContent   = p.caption || '记录一天';
+}
+// 连贯切换：front 顺势滑到 back 位，back 升到 front 位，交换身份
+function slideCard(dir) {
+  if (POSTS.length < 2 || cardAnimating) return;
+  cardAnimating = true;
+  cardFront.style.transition = `transform .46s ${CARD_EASE}`;
+  cardBack.style.transition  = `transform .46s ${CARD_EASE}`;
+  cardPlace(cardFront, BACK_T, 1);
+  cardPlace(cardBack, FRONT_T, 2);
+  const onEnd = (e) => {
+    if (e.propertyName !== 'transform') return;
+    cardBack.removeEventListener('transitionend', onEnd);
+    const old = cardFront; cardFront = cardBack; cardBack = old;
+    cardIndex = ((cardIndex + dir) % POSTS.length + POSTS.length) % POSTS.length;
+    cardFill(cardBack, cardIndex + 1);
+    cardSettle();
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      cardFront.style.transition = cardBack.style.transition = '';
+      cardAnimating = false; cardUpdateMeta();
+    }));
+  };
+  cardBack.addEventListener('transitionend', onEnd);
+}
+// 横滑拖拽（跟手 + 松手顺势）
+let cDrag = false, csx = 0, cdx = 0;
+albumDeck.addEventListener('pointerdown', e => {
+  if (POSTS.length < 2 || cardAnimating) return;
+  cDrag = true; csx = e.clientX; cdx = 0;
+  cardFront.style.transition = 'none';
+  albumDeck.setPointerCapture && albumDeck.setPointerCapture(e.pointerId);
+});
+albumDeck.addEventListener('pointermove', e => {
+  if (!cDrag) return;
+  cdx = e.clientX - csx;
+  cardFront.style.transform = `translate(${cdx}px, ${Math.abs(cdx) * 0.12}px) rotate(${2 + cdx / 30}deg) scale(1)`;
+});
+function cardEndDrag() {
+  if (!cDrag) return; cDrag = false;
+  if (Math.abs(cdx) > 70) slideCard(cdx < 0 ? 1 : -1);
+  else { cardFront.style.transition = `transform .3s ${CARD_EASE}`; cardFront.style.transform = FRONT_T; }
+}
+albumDeck.addEventListener('pointerup', cardEndDrag);
+albumDeck.addEventListener('pointercancel', cardEndDrag);
+
+// ── 模式切换：地图 ↔ 卡片 ─────────────────────────────
+function showMapMode() { albumDeck.style.display = 'none'; stage.style.display = ''; }
+function showCardMode(posts) {
+  stage.style.display = 'none';
+  albumDeck.style.display = 'block';
+  POSTS = posts; cardIndex = 0;
+  cardFront = document.getElementById('albumCardA');   // 复位身份，避免多次切换后错乱
+  cardBack  = document.getElementById('albumCardB');
+  if (posts.length === 1) {
+    // 1 张：单图正放大图，隐藏后卡，禁用切换
+    albumDeck.classList.add('single');
+    cardBack.style.display = 'none';
+    cardFill(cardFront, 0);
+    cardPlace(cardFront, SINGLE_T, 2);
+    cardUpdateMeta();
+  } else {
+    // 2~3 张：叠放卡片，可横滑切换
+    albumDeck.classList.remove('single');
+    cardBack.style.display = '';
+    cardFill(cardFront, 0);
+    cardFill(cardBack, 1);
+    cardSettle();
+    cardUpdateMeta();
+  }
+}
+
+// ── 地图模式填充（≥6张）──────────────────────────────
+//   内容源 = 真实成片（N 张唯一图）；最新 posts[0] 经 SLOT_ORDER 落在焦点位。
+//   8 个展示位循环显示这 N 张；滑动时 nextC 递增遍历全部，焦点连续不重复。
+function fillMapFromPosts(posts) {
+  MAP_SRC = posts.map(p => ({
+    imageUrl: p.imageUrl,
+    date: formatDate(p.date),
+    caption: p.caption || '记录一天',
+  }));
+  N = MAP_SRC.length;
+  rotation = 0;
+  buildItems(); place(false); updateTop();
+}
+
+// ── 拉取成片 + 按数量分发展示模式 ─────────────────────
+//   1 张：单图 / 2~3 张：卡片横滑 / ≥4 张：地图错落（焦点连续不重复）/ 0 张：演示地图
+async function loadUserPosts() {
+  try {
+    const data = await api('GET', '/v1/posts?limit=50');
+    const posts = data.posts || [];
+    if (posts.length === 0) { showMapMode(); return; }        // 无真实数据 → 保留演示地图
+    if (posts.length >= 4)  { showMapMode(); fillMapFromPosts(posts); }  // ≥4 → 地图
+    else                    { showCardMode(posts); }          // 1~3 张 → 大图卡片（1张单图/2-3横滑）
+  } catch (e) {
+    console.warn('[album] 拉取成片失败，使用演示图:', e.message);
+  }
+}
+loadUserPosts();
+
+// ★ 被 buji 容器唤醒重拉：发布完成后容器会 postMessage('refresh')，
+//   让预加载的相册 iframe 重新拉取最新成片（否则滑过来看到的还是旧数据）。
+window.addEventListener('message', (e) => {
+  if (e.data === 'refresh') loadUserPosts();
+});
+
+const shell = document.querySelector('.phone-shell');
+let gx = 0, gy = 0, gDown = false;
+shell.addEventListener('pointerdown', e => { gx = e.clientX; gy = e.clientY; gDown = true; }, true);
+shell.addEventListener('pointerup', e => {
+  if (!gDown) return; gDown = false;
+  const dyDown = e.clientY - gy;                 // 下滑为正
+  const dxAbs = Math.abs(e.clientX - gx);
+  if (dyDown > 40 && dyDown > dxAbs * 1.1) {     // 垂直下滑为主 → 回发现页
+    go('goDiscover', 'discover-page.html', 'recorded=1');
+  }
+}, true);
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+node_modules/
+.env
+# 数据库（本地运行数据，不提交）
+data/buji.db
+data/buji.db-shm
+data/buji.db-wal
+data/uploads/
+*.log
+.DS_Store
+# 本地 HTTPS 自签名证书 / 私钥（绝不提交，按 README 用 openssl 本地生成）
+cert.pem
+key.pem
+ca-cert.pem
+ca-key.pem
+public/buji-cert.cer

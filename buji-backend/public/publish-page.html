@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=430, initial-scale=1.0, user-scalable=no">
+<title>步集 · 发布页</title>
+<style>
+  /* ================== 字体 ================== */
+  @font-face {
+    font-family: 'momozhuanji';
+    src: url('assets/fonts/momozhuanji.ttf') format('truetype');
+    font-display: swap;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    background: #1a1a1a;
+    font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    color: #fff;
+  }
+
+  /* ================== 手机外壳 · 430×932 ================== */
+  .phone {
+    position: relative;
+    width: 430px;
+    height: 932px;
+    background: #F9F9F9;
+    overflow: hidden;
+    box-shadow: 0 40px 120px rgba(0,0,0,0.6);
+    /* 自动缩放适配窗口 */
+    transform-origin: center center;
+  }
+
+  /* ================== 顶部装饰 · 模糊光斑 ================== */
+  .glow {
+    position: absolute;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .glow.peach {
+    left: -58px; top: -209px;
+    width: 334px; height: 303px;
+    background: rgba(255, 233, 204, 0.6);
+    filter: blur(84.7px); /* Figma layer blur 169.4 ÷ 2 for CSS visual match */
+  }
+  .glow.yellow {
+    left: 243px; top: -144px;
+    width: 254px; height: 254px;
+    background: rgba(249, 255, 177, 0.6);
+    filter: blur(84.3px);
+  }
+
+  /* ================== 状态栏 · 0,0 · 430×59 ================== */
+  .status-bar {
+    position: absolute; left: 0; top: 0;
+    width: 430px; height: 59px;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0 30px;
+    padding-top: 21px;
+    font-family: "SF Pro", -apple-system, "PingFang SC", sans-serif;
+    font-size: 17px; font-weight: 590;
+    color: #141414;
+    z-index: 20;
+  }
+  .status-bar .levels {
+    display: flex; align-items: center; gap: 7px;
+  }
+  .status-bar .signal, .status-bar .wifi { width: 18px; height: 12px; fill: #141414; }
+  .status-bar .battery {
+    position: relative;
+    width: 25px; height: 13px;
+    border: 1px solid rgba(20,20,20,0.35);
+    border-radius: 3.5px;
+    display: flex; align-items: center; padding: 1px;
+  }
+  .status-bar .battery::after {
+    content: ""; position: absolute; right: -3px; top: 50%;
+    width: 1.5px; height: 4px; background: rgba(20,20,20,0.4);
+    border-radius: 1px; transform: translateY(-50%);
+  }
+  .status-bar .battery-cap { width: 21px; height: 9px; background: #141414; border-radius: 2px; }
+
+  /* ================== 顶部导航 · 返回按钮 ================== */
+  .nav-back {
+    position: absolute;
+    left: 20px; top: 67px;
+    width: 24px; height: 24px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    z-index: 15;
+  }
+  .nav-back svg { width: 24px; height: 24px; }
+
+  /* ================== 日期标题 · 31,118 ================== */
+  .date-title {
+    position: absolute;
+    left: 31px; top: 118px;
+    width: 370px; height: 40px;
+    font-family: 'momozhuanji', -apple-system, "PingFang SC", sans-serif;
+    font-size: 32px;
+    font-weight: 500;
+    color: #2E383F;
+    line-height: 40px;
+    z-index: 10;
+  }
+
+  /* ================== 输入框 · 31,170 ================== */
+  .input-row {
+    position: absolute;
+    left: 31px; top: 170px;
+    width: 370px;
+    display: flex; align-items: center;
+    z-index: 10;
+  }
+  .input-row .cursor {
+    position: absolute;
+    left: 0; top: 3px;
+    width: 1px; height: 36px;
+    background: #2E383F;
+    animation: blink 1.06s steps(1) infinite;
+    opacity: 0;
+  }
+  .input-row.editing .cursor { opacity: 1; }
+  @keyframes blink { 0%,50% { opacity: 1; } 51%,100% { opacity: 0; } }
+
+  .input-row .text {
+    padding-left: 6px;
+    font-family: 'momozhuanji', -apple-system, "PingFang SC", sans-serif;
+    font-size: 32px;
+    font-weight: 500;
+    line-height: 42px;
+    letter-spacing: 0.5px;
+    color: rgba(110, 89, 61, 0.3);   /* placeholder 棕色 */
+    outline: none;
+    caret-color: transparent;         /* 用自定义 cursor */
+    background: transparent;
+    border: none;
+    flex: 1;
+    resize: none;
+    overflow: hidden;
+    min-height: 42px;
+  }
+  .input-row .text::placeholder { color: rgba(110, 89, 61, 0.3); }
+  .input-row.filled .text { color: #2E383F; }
+
+  /* ================== 照片卡 · 35,272 · 361×509 ================== */
+  .photo-card {
+    position: absolute;
+    left: 35px; top: 272px;
+    width: 361px; height: 509px;
+    background: #ffffff;
+    border-radius: 21px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+    overflow: hidden;   /* 子元素受圆角裁切 */
+    z-index: 8;
+  }
+  .photo-half {
+    position: absolute;
+    left: 0; width: 361px;
+    overflow: hidden;
+  }
+  /* 上下两半需随卡片圆角裁切 */
+  .photo-half.top {
+    top: 0; height: 259px;
+    border-radius: 21px 21px 0 0;
+  }
+  .photo-half.bottom {
+    top: 259px; height: 250px;
+    border-radius: 0 0 21px 21px;
+  }
+  .photo-half img.photo {
+    position: absolute; left: 0; top: 0;
+    width: 361px; height: 509px;    /* 同一张图铺满整张卡，两半各自剪裁一半 */
+    object-fit: cover;
+    display: block;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+  .photo-half.bottom img.photo { top: -259px; }
+
+  /* 底半的黄绿遮罩层 (含波点洞) — SVG mask */
+  .photo-half.bottom .dot-mask {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  /* 上半的彩色实心波点 */
+  .photo-half.top .solid-dots {
+    position: absolute; inset: 0;
+    pointer-events: none;
+  }
+
+  /* 角落定位标记 (L 型) — 4 个角 */
+  .corner {
+    position: absolute;
+    width: 22px; height: 22px;
+    pointer-events: none;
+    z-index: 12;
+  }
+  .corner.tl { left: 0; top: 0; }
+  .corner.tr { right: 0; top: 0; transform: scaleX(-1); }
+  .corner.bl { left: 0; bottom: 0; transform: scaleY(-1); }
+  .corner.br { right: 0; bottom: 0; transform: scale(-1, -1); }
+  .corner svg { width: 22px; height: 22px; display: block; }
+
+  /* ================== 主按钮 · 143,818 · 144×56 ================== */
+  .cta {
+    position: absolute;
+    left: 143px; top: 818px;
+    width: 144px; height: 56px;
+    background: #2E383F;
+    border-radius: 28px;
+    border: none;
+    font-family: "PingFang SC", -apple-system, sans-serif;
+    font-size: 18px; font-weight: 600;
+    color: rgba(255,255,255,0.28);      /* 未激活：白色低透明度，在深色背景上可见 */
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    letter-spacing: 4px;
+    transition: color 0.25s, transform 0.15s;
+    z-index: 10;
+  }
+  .cta.active {
+    color: #ffffff;                     /* 激活：纯白 */
+  }
+  .cta:active { transform: scale(0.97); }
+
+  /* ================== 底部小字 · 17,865 ================== */
+  .footer-hint {
+    position: absolute;
+    left: 17px; top: 865px;
+    display: flex; align-items: center;
+    gap: 8px;
+    z-index: 10;
+  }
+  .footer-hint .logo-dot {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: #2E383F;
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .footer-hint .logo-dot::before,
+  .footer-hint .logo-dot::after {
+    content: "";
+    position: absolute;
+    width: 3px; height: 3px;
+    background: #F9F9F9;
+    border-radius: 50%;
+  }
+  .footer-hint .logo-dot::before { top: 4px; left: 3.5px; }
+  .footer-hint .logo-dot::after  { top: 4px; right: 3.5px; }
+  .footer-hint .text {
+    font-family: "PingFang SC", -apple-system, sans-serif;
+    font-size: 10px; font-weight: 400;
+    color: rgba(20,20,20,0.4);
+    line-height: 14px;
+  }
+
+  /* ================== Home Indicator ================== */
+  .home-indicator {
+    position: absolute;
+    left: 143px; top: 919px;
+    width: 139px; height: 5px;
+    background: #000;
+    border-radius: 3px;
+    z-index: 10;
+  }
+
+  /* ================== 顶部状态切换器 (开发调试用) ================== */
+  .state-switch {
+    position: fixed;
+    top: 20px; left: 20px;
+    display: flex; gap: 8px;
+    z-index: 100;
+    background: rgba(255,255,255,0.05);
+    padding: 8px; border-radius: 12px;
+    backdrop-filter: blur(20px);
+  }
+  .state-switch button {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.2);
+    color: rgba(255,255,255,0.7);
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: -apple-system, "PingFang SC", sans-serif;
+  }
+  .state-switch button.on {
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+    border-color: rgba(255,255,255,0.4);
+  }
+
+  /* ================== 缩放适配 ================== */
+  .phone {
+    /* 同时限制高度和宽度，取较小的比例 */
+    transform: scale(min(1, (100vh - 20px) / 932, (100vw - 20px) / 430));
+  }
+
+  /* embed 模式：直接铺满父容器（用于 buji.html iframe 内嵌） */
+  body.embed {
+    background: transparent;
+    align-items: stretch;
+    justify-content: stretch;
+    overflow: hidden;
+  }
+  body.embed .phone {
+    position: fixed; inset: 0;   /* 相对视口铺满，避免 height:100% 因父级无确定高度而塌陷 */
+    width: 100%; height: 100%;
+    box-shadow: none;
+    transform: none;
+  }
+  body.embed .state-switch { display: none; }
+</style>
+</head>
+<body>
+
+<div class="state-switch">
+  <button id="btn-empty" class="on">未输入</button>
+  <button id="btn-filled">输入中</button>
+</div>
+
+<div class="phone">
+
+  <!-- 顶部两颗大光斑（模糊背景） -->
+  <div class="glow peach"></div>
+  <div class="glow yellow"></div>
+
+  <!-- 状态栏 -->
+  <div class="status-bar">
+    <div class="time">9:41</div>
+    <div class="levels">
+      <svg class="signal" viewBox="0 0 19 12" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0" y="8" width="3" height="4" rx="0.5"/>
+        <rect x="5" y="5" width="3" height="7" rx="0.5"/>
+        <rect x="10" y="2" width="3" height="10" rx="0.5"/>
+        <rect x="15" y="0" width="3" height="12" rx="0.5"/>
+      </svg>
+      <svg class="wifi" viewBox="0 0 17 12" xmlns="http://www.w3.org/2000/svg">
+        <path d="M8.5 2.4C11 2.4 13.3 3.35 15 4.9L16.6 3.3C14.4 1.25 11.55 0 8.5 0S2.6 1.25 0.4 3.3L2 4.9C3.7 3.35 6 2.4 8.5 2.4Z"/>
+        <path d="M8.5 6.4C10.05 6.4 11.5 6.95 12.6 7.95L14.15 6.4C12.65 4.95 10.7 4.05 8.5 4.05S4.35 4.95 2.85 6.4L4.4 7.95C5.5 6.95 6.95 6.4 8.5 6.4Z"/>
+        <path d="M8.5 10C9.6 10 10.55 10.45 11.2 11.15L8.5 12L5.8 11.15C6.45 10.45 7.4 10 8.5 10Z"/>
+      </svg>
+      <div class="battery"><div class="battery-cap"></div></div>
+    </div>
+  </div>
+
+  <!-- 返回按钮 -->
+  <div class="nav-back" onclick="handleBack()">
+    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M5.2003 11.8522C5.13217 11.9285 5.13213 12.0451 5.2002 12.1214L11.7723 19.4938C12.1005 19.862 12.0737 20.4316 11.7124 20.766C11.3511 21.1005 10.7922 21.0731 10.464 20.705L3.23157 12.5919C2.92524 12.2482 2.92544 11.7236 3.23202 11.3802L10.4509 3.29455C10.7794 2.92664 11.3383 2.89973 11.6994 3.23444C12.0604 3.56916 12.0868 4.13875 11.7584 4.50666L5.2003 11.8522Z" fill="black" fill-opacity="0.8"/>
+    </svg>
+  </div>
+
+  <!-- 日期 -->
+  <div class="date-title" id="date-title">6月24日</div>
+
+  <!-- 输入区 -->
+  <div class="input-row" id="input-row">
+    <div class="cursor"></div>
+    <div class="text" id="text-input" contenteditable="true" data-placeholder="记录让幸福可以翻阅">记录让幸福可以翻阅</div>
+  </div>
+
+  <!-- 照片卡 -->
+  <div class="photo-card">
+    <!-- 上半 · 原图 + 彩色实心波点 -->
+    <div class="photo-half top">
+      <img class="photo" src="assets/publish/photo-main.jpg" alt="">
+      <svg class="solid-dots" viewBox="0 0 361 259" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+        <!-- 相对 Corner Markers 起点 (35, 272) 的 8 个装饰点，取 y-272 得到相对偏移 -->
+        <ellipse cx="228.6" cy="-8.1"  rx="13.1" ry="13.1" fill="#ffffff"/>
+        <ellipse cx="27.7"  cy="82.9"  rx="14.0" ry="14.0" fill="#F9FFB1"/>
+        <ellipse cx="106.2" cy="128.9" rx="14.4" ry="14.4" fill="#B8B8B8"/>
+        <ellipse cx="335.5" cy="72.9"  rx="19.9" ry="19.9" fill="#F9FFB1"/>
+        <ellipse cx="274.1" cy="164.4" rx="28.5" ry="28.5" fill="#F9FFB1"/>
+        <ellipse cx="187.2" cy="207.6" rx="13.1" ry="13.1" fill="#F9FFB1"/>
+        <ellipse cx="405.4" cy="156.4" rx="13.1" ry="13.1" fill="#F9FFB1"/>
+        <ellipse cx="40.4"  cy="209.7" rx="19.9" ry="19.9" fill="#F9FFB1"/>
+      </svg>
+    </div>
+
+    <!-- 下半 · 原图 + 黄绿遮罩（有波点镂空） -->
+    <div class="photo-half bottom">
+      <img class="photo" src="assets/publish/photo-main.jpg" alt="">
+      <svg class="dot-mask" viewBox="0 0 361 250" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <mask id="dot-holes-mask">
+            <!-- 白色区域 = 保留（遮罩生效）；黑色圆 = 挖洞（露出图片） -->
+            <rect x="0" y="0" width="361" height="250" fill="white"/>
+            <!-- 8 个镜像波点 — 相对 (35, 531) 底半起点 y-531 -->
+            <ellipse cx="239.1" cy="166.3" rx="28.5" ry="28.5" fill="black"/>
+            <ellipse cx="106.7" cy="143.7" rx="14.5" ry="14.5" fill="black"/>
+            <ellipse cx="152.3" cy="221.5" rx="13.1" ry="13.1" fill="black"/>
+            <ellipse cx="163.2" cy="21.7"  rx="13.1" ry="13.1" fill="black"/>
+            <ellipse cx="366.5" cy="158.2" rx="13.1" ry="13.1" fill="black"/>
+            <ellipse cx="296.5" cy="86.8"  rx="19.9" ry="19.9" fill="black"/>
+            <ellipse cx="26.8"  cy="96.7"  rx="14.0" ry="14.0" fill="black"/>
+            <ellipse cx="5.5"   cy="211.5" rx="19.9" ry="19.9" fill="black"/>
+          </mask>
+        </defs>
+        <rect x="0" y="0" width="361" height="250" fill="#F9FFB1" mask="url(#dot-holes-mask)"/>
+      </svg>
+    </div>
+
+    <!-- 4 个角标 -->
+    <div class="corner tl">
+      <svg viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M22 0 H21.08 V22 H22 Z" fill="rgba(255,255,255,0.9)"/>
+        <path d="M22 0.917 H0 V0 H22 Z" fill="rgba(255,255,255,0.9)"/>
+      </svg>
+    </div>
+    <div class="corner tr">
+      <svg viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M22 0 H21.08 V22 H22 Z" fill="rgba(255,255,255,0.9)"/>
+        <path d="M22 0.917 H0 V0 H22 Z" fill="rgba(255,255,255,0.9)"/>
+      </svg>
+    </div>
+    <div class="corner bl">
+      <svg viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M22 0 H21.08 V22 H22 Z" fill="rgba(255,255,255,0.9)"/>
+        <path d="M22 0.917 H0 V0 H22 Z" fill="rgba(255,255,255,0.9)"/>
+      </svg>
+    </div>
+    <div class="corner br">
+      <svg viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M22 0 H21.08 V22 H22 Z" fill="rgba(255,255,255,0.9)"/>
+        <path d="M22 0.917 H0 V0 H22 Z" fill="rgba(255,255,255,0.9)"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- 主按钮 -->
+  <button class="cta" id="cta" onclick="handleSubmit()">好啦</button>
+
+  <!-- 底部小字 -->
+  <div class="footer-hint">
+    <div class="logo-dot"></div>
+    <div class="text">打开「点点」测穿搭风格</div>
+  </div>
+
+  <!-- Home Indicator -->
+  <div class="home-indicator"></div>
+
+</div>
+
+<script src="assets/api.js"></script>
+<script>
+  // embed 模式支持：#embed=1 → 铺满父容器
+  const IS_EMBED = location.hash.includes('embed=1');
+  if (IS_EMBED) document.body.classList.add('embed');
+
+  // 跳转封装：buji 容器内发 postMessage；独立打开则整页跳转
+  function nav(page, params) {
+    const parts = [];
+    if (IS_EMBED) parts.push('embed=1');
+    if (params) parts.push(params);
+    location.href = page + (parts.length ? '#' + parts.join('&') : '');
+  }
+  function go(msg, page, params) {
+    if (IS_EMBED) parent.postMessage(msg, '*');
+    else nav(page, params);
+  }
+
+  // 读取相机草稿图：相机拍摄的成图（已含波点效果）→ 铺满照片卡预览
+  // 具名函数，支持被 buji 容器 postMessage({type:'refresh'}) 唤醒重读（解决 iframe 预加载时序）
+  function refreshDraft() {
+    const card = document.querySelector('.photo-card');
+    if (!card) return;
+    // 移除上次插入的草稿图
+    const old = card.querySelector('.draft-photo');
+    if (old) old.remove();
+    let draft = null;
+    try { draft = localStorage.getItem('buji_draft'); } catch (e) {}
+    if (!draft) {
+      // 无草稿：恢复默认分半展示
+      card.querySelectorAll('.photo-half').forEach(h => h.style.display = '');
+      return;
+    }
+    // 有草稿：隐藏原分半底图 + SVG 装饰（相机图已是完整合成图），铺满整卡
+    card.querySelectorAll('.photo-half').forEach(h => h.style.display = 'none');
+    const img = document.createElement('img');
+    img.className = 'draft-photo';
+    img.src = draft;
+    img.alt = '';
+    Object.assign(img.style, {
+      position: 'absolute', inset: '0',
+      width: '100%', height: '100%',
+      objectFit: 'cover', display: 'block',
+      borderRadius: '21px',
+      zIndex: '0', userSelect: 'none',
+    });
+    card.insertBefore(img, card.firstChild);
+  }
+  refreshDraft();
+
+  const inputRow = document.getElementById('input-row');
+  const textInput = document.getElementById('text-input');
+  const cta = document.getElementById('cta');
+  const btnEmpty = document.getElementById('btn-empty');
+  const btnFilled = document.getElementById('btn-filled');
+
+  // 顶部两种状态一键预览
+  btnEmpty.addEventListener('click', () => setEmpty());
+  btnFilled.addEventListener('click', () => setFilled('本人今天又出去玩了'));
+
+  function setEmpty() {
+    textInput.textContent = '记录让幸福可以翻阅';
+    inputRow.classList.remove('filled');
+    inputRow.classList.remove('editing');
+    cta.classList.remove('active');
+    btnEmpty.classList.add('on');
+    btnFilled.classList.remove('on');
+  }
+  function setFilled(text) {
+    textInput.textContent = text;
+    inputRow.classList.add('filled');
+    inputRow.classList.remove('editing');
+    cta.classList.add('active');
+    btnEmpty.classList.remove('on');
+    btnFilled.classList.add('on');
+  }
+
+  // 真实编辑逻辑
+  textInput.addEventListener('focus', () => {
+    if (textInput.textContent === '记录让幸福可以翻阅') {
+      textInput.textContent = '';
+    }
+    inputRow.classList.add('editing');
+    inputRow.classList.add('filled');   // 编辑态文字深色
+  });
+  textInput.addEventListener('blur', () => {
+    inputRow.classList.remove('editing');
+    if (!textInput.textContent.trim()) {
+      setEmpty();
+    }
+  });
+  textInput.addEventListener('input', () => {
+    const has = textInput.textContent.trim().length > 0;
+    cta.classList.toggle('active', has);
+  });
+
+  function handleBack() {
+    // 返回发现页（收起覆盖层）
+    go('closeOverlay', 'discover-page.html', 'recorded=1');
+  }
+
+  async function handleSubmit() {
+    if (!cta.classList.contains('active')) return;
+    if (cta.disabled) return;
+
+    // 反馈动画
+    cta.style.transform = 'scale(0.95)';
+    setTimeout(() => cta.style.transform = '', 180);
+
+    // 读取草稿图（相机存到 localStorage 的合成图 dataURL）
+    let draft = null;
+    try { draft = localStorage.getItem('buji_draft'); } catch (e) {}
+    if (!draft) {
+      showToast('还没有拍照哦');
+      return;
+    }
+
+    // 取文本；过滤占位符
+    let caption = (textInput.textContent || '').trim();
+    if (caption === '记录让幸福可以翻阅') caption = '';
+
+    cta.disabled = true;
+    const origText = cta.textContent;
+    cta.textContent = '发布中…';
+
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      await api('POST', '/v1/posts', { image: draft, caption, date: today });
+      // 成功：清草稿 + 跳相册
+      try { localStorage.removeItem('buji_draft'); } catch (e) {}
+      showToast('保存成功');
+      setTimeout(() => go('publishDone', 'album-map.html'), 900);
+    } catch (err) {
+      console.error('[publish] 发布失败:', err);
+      showToast('发布失败：' + (err.message || '网络错误'));
+      cta.disabled = false;
+      cta.textContent = origText;
+    }
+  }
+
+  function showToast(msg) {
+    const t = document.createElement('div');
+    t.textContent = msg;
+    Object.assign(t.style, {
+      position: 'fixed', left: '50%', bottom: '120px',
+      transform: 'translateX(-50%)',
+      background: 'rgba(46,56,63,0.92)', color: '#fff',
+      padding: '12px 24px', borderRadius: '24px',
+      fontSize: '14px', zIndex: 200,
+      backdropFilter: 'blur(20px)',
+      boxShadow: '0 12px 40px rgba(0,0,0,0.4)',
+      opacity: '0', transition: 'opacity 0.3s, transform 0.3s',
+    });
+    document.body.appendChild(t);
+    requestAnimationFrame(() => { t.style.opacity = '1'; t.style.transform = 'translateX(-50%) translateY(-8px)'; });
+    setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 1600);
+  }
+</script>
+
+</body>
+</html>

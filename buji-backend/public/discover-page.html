@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>步集 · 发现页</title>
+<style>
+  @font-face {
+    font-family: 'momozhuanji';
+    src: url('assets/fonts/momozhuanji.ttf') format('truetype');
+    font-weight: 500; font-display: swap;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    background: #0a0a0f; font-family: -apple-system, "PingFang SC", sans-serif;
+    min-height: 100dvh; overflow: hidden; display: flex; align-items: center; justify-content: center;
+    color: #2e383f; user-select: none;
+  }
+  .phone-shell {
+    width: 430px; height: 932px; background: #faf9f9; border-radius: 54px;
+    box-shadow: 0 0 0 2px #2a2a30, 0 30px 80px rgba(0,0,0,0.8);
+    overflow: hidden; position: relative;
+  }
+  @media (max-height: 960px) { .phone-shell { transform: scale(0.86); transform-origin: center; } }
+  @media (max-height: 820px) { .phone-shell { transform: scale(0.74); transform-origin: center; } }
+  @media (max-height: 720px) { .phone-shell { transform: scale(0.64); transform-origin: center; } }
+
+  /* ── 顶部渐变光斑（Figma Ellipse 2827 切图 860×557，@2x）── */
+  .bg-gradient {
+    position: absolute; left: 0; top: 0; right: 0;
+    height: 279px;   /* 557 / 2 = 278.5，@2x 切图，按 100% 宽铺满后精确高度 */
+    z-index: 1; pointer-events: none;
+    background: url('assets/discover/bg-gradient.png') top center / 100% auto no-repeat;
+  }
+
+  .status-bar { position: absolute; top: 0; left: 0; right: 0; height: 59px; z-index: 30; }
+  .status-time { position: absolute; left: 59px; top: 21px; font-size: 17px; font-weight: 600; color: #141414; font-family: -apple-system, sans-serif; }
+  .status-icons { position: absolute; right: 28px; top: 24px; display: flex; gap: 6px; align-items: center; }
+  .status-icons svg { display: block; }
+
+  .greet-hi { position: absolute; left: 31px; top: 94px; font-family: 'momozhuanji', cursive; font-size: 32px; line-height: 40px; color: #2E383F; z-index: 5; }
+  .greet-sub { position: absolute; left: 31px; top: 146px; font-family: 'momozhuanji', cursive; font-size: 32px; line-height: 40px; color: #2E383F; z-index: 5; }
+
+  /* ══════════════════════════════════════════════════════
+     任务卡台（两张卡循环承载 N 个任务）
+     Figma node 463:2894 / 456:2842 — 360×419，圆角20
+     卡片层次（从下到上）：
+       ① 纯色背景（.dark=#5C748B / .light=#C2D1DF）
+       ② Subtract 多边形背景装饰（切图，固定填满卡片）
+       ③ 标题文字（momozhuanji 24px，letterSpacing 8.33%）
+       ④ 配图容器（固定位置，接口化，旋转 6°）
+     ══════════════════════════════════════════════════════ */
+  .deck {
+    position: absolute; left: 35px; top: 253px;
+    width: 360px; height: 419px;
+    z-index: 6; touch-action: none;
+  }
+  .task-card {
+    position: absolute; left: 0; top: 0; width: 360px; height: 419px;
+    border-radius: 20px; overflow: hidden; cursor: grab;
+    box-shadow: 0 10px 30px rgba(40,60,80,0.18);
+    will-change: transform;
+  }
+  .task-card.dark  { background: #5C748B; }
+  .task-card.light { background: #C2D1DF; }
+
+  /* ② Subtract 多边形背景装饰（@2x 切图 644×774，铺满卡片 360×419）
+     深色卡 → subtract-dark.png（蓝灰底 #5C748B，白色点缀）
+     浅色卡 → subtract-light.png（浅蓝底 #C2D1DF，白色点缀）*/
+  .task-card .card-subtract {
+    position: absolute; inset: 0;
+    background-size: 100% 100%;   /* 拉伸填满，多边形软边拉伸不明显 */
+    background-position: center;
+    background-repeat: no-repeat;
+    pointer-events: none;
+  }
+  .task-card.dark  .card-subtract {
+    background-image: url('assets/discover/subtract-dark.png');
+  }
+  .task-card.light .card-subtract {
+    background-image: url('assets/discover/subtract-light.png');
+  }
+
+  /* ③ 标题文字
+     Figma style_WM7K03：momozhuanji 24px 500，letterSpacing 8.33%，lineHeight 1.50em
+     位置从 Figma 估算：y≈120，水平居中 */
+  .task-title {
+    position: absolute;
+    left: 32px; top: 120px; width: 296px;
+    font-family: 'momozhuanji', cursive;
+    font-size: 24px; font-weight: 500;
+    line-height: 1.50em;          /* 36px */
+    letter-spacing: 0.0833em;    /* 8.33% — Figma style_WM7K03 */
+    text-align: center;
+    z-index: 2;
+  }
+  .task-card.dark  .task-title { color: #FFFFFF; }
+  .task-card.light .task-title { color: #2E383F; }
+
+  /* ④ 配图容器（Frame 2116747373）
+     接口化：src 通过 TASKS[i].image 注入；容器位置固定
+     Figma 配图区域：卡片右下方，约 left:170 top:240 w:130 h:140
+     自带 6° 斜度（与整个发现页卡叠层的旋转一致）
+     切图未就位时显示半透明占位（不遮挡标题） */
+  .task-pic-wrap {
+    position: absolute;
+    left: 168px; top: 238px;
+    width: 130px; height: 140px;
+    transform: rotate(6deg);
+    transform-origin: center center;
+    z-index: 3;
+    overflow: visible;
+  }
+  .task-pic-wrap img {
+    width: 100%; height: 100%;
+    object-fit: contain;
+    display: block;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+  /* 无图时的占位（虚线框，便于开发期定位） */
+  .task-pic-wrap.placeholder {
+    border: 2px dashed rgba(255,255,255,0.40);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .task-card.light .task-pic-wrap.placeholder { border-color: rgba(46,56,63,0.30); }
+  .task-pic-placeholder-text {
+    font-size: 10px; color: rgba(255,255,255,0.6);
+    text-align: center; line-height: 1.5; white-space: pre;
+    pointer-events: none;
+  }
+  .task-card.light .task-pic-placeholder-text { color: rgba(46,56,63,0.45); }
+
+  /* Figma layout_P6MB0T: x:1 y:690 w:429 */
+  .pager { position: absolute; left: 1px; top: 690px; width: 429px; height: 6px; display: flex; justify-content: center; align-items: center; gap: 5px; z-index: 8; }
+  .pager .dot { width: 5px; height: 5px; border-radius: 50%; background: #303034; opacity: .2; transition: all .3s; }
+  .pager .dot.active { background: #152938; opacity: 1; width: 6px; height: 6px; }
+
+  .btn-go {
+    position: absolute; left: 143px; top: 756px; width: 144px; height: 56px;
+    background: #2E383F; border-radius: 80px; border: none; cursor: pointer;
+    color: #fff; font-size: 18px; font-weight: 600; font-family: -apple-system, "PingFang SC", sans-serif;
+    display: flex; align-items: center; justify-content: center; z-index: 20;
+    transition: transform .15s, opacity .15s;
+  }
+  .btn-go:active { transform: scale(0.96); opacity: .9; }
+
+  /* 第一次记录后：底部浅蓝渐变 +「上滑查看我的步集」—— 3 秒后淡出 */
+  .breath {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 160px; z-index: 12;
+    pointer-events: none; opacity: 0; touch-action: none;
+    background: linear-gradient(to top, rgba(206,233,242,0.95) 0%, rgba(219,235,241,0.55) 45%, rgba(219,235,241,0) 100%);
+    /* 3秒后淡出：0~0.4s 渐入, 停留到2.6s, 2.6~3.0s 淡出 */
+    transition: none;
+  }
+  /* JS 控制 show 类：show 时触发 3 秒自动淡出动画 */
+  .breath.show {
+    pointer-events: auto; cursor: pointer;
+    animation: breathShow 3s cubic-bezier(0.22,1,0.36,1) forwards;
+  }
+  @keyframes breathShow {
+    0%   { opacity: 0; }
+    13%  { opacity: 1; }        /* 0.4s 渐入 */
+    87%  { opacity: 1; }        /* 停留到 2.6s */
+    100% { opacity: 0; pointer-events: none; } /* 3s 淡出 */
+  }
+  .breath-text {
+    position: absolute; left: 0; right: 0; bottom: 30px; text-align: center;
+    font-size: 14px; color: #2E383F; font-family: -apple-system, "PingFang SC", sans-serif;
+    letter-spacing: 1px; font-weight: 500;
+  }
+  .breath-arrow {
+    position: absolute; left: 50%; bottom: 58px; transform: translateX(-50%);
+    width: 22px; height: 22px; animation: arrowBobUp 1.6s ease-in-out 3;
+  }
+  @keyframes arrowBobUp { 0%,100%{ transform: translateX(-50%) translateY(0);} 50%{ transform: translateX(-50%) translateY(-6px);} }
+
+  .home-ind { position: absolute; left: 50%; bottom: 9px; transform: translateX(-50%); width: 139px; height: 5px; border-radius: 100px; background: #000; z-index: 40; }
+
+  .demo-toggle { position: absolute; right: 14px; top: 64px; z-index: 50; font-size: 11px; background: rgba(0,0,0,.5); color: #fff; border: none; border-radius: 8px; padding: 5px 8px; cursor: pointer; }
+
+  /* embed 模式（被 buji.html 容器以 iframe 嵌入时）：
+     等比缩放（scale fit-to-iframe）确保「去记录」按钮等所有控件始终可见，不被截断 */
+  body.embed { background: #faf9f9; align-items: flex-start; justify-content: center; overflow: hidden; }
+  body.embed .phone-shell {
+    box-shadow: none; border-radius: 0;
+    /* 固定设计尺寸；transform 由 JS 按 iframe 实际大小计算 */
+    width: 430px; height: 932px; flex-shrink: 0;
+    transform-origin: top center !important;
+    /* 覆盖 @media max-height 的 scale（JS 会重新设置正确值） */
+    transform: scale(1) !important;
+  }
+  body.embed .demo-toggle { display: none; }
+</style>
+</head>
+<body>
+
+<div class="phone-shell">
+
+  <!-- 顶部渐变光斑（Figma Ellipse 2827 切图 → bg-gradient.png） -->
+  <div class="bg-gradient"></div>
+
+  <div class="status-bar">
+    <div class="status-time">9:41</div>
+    <div class="status-icons">
+      <svg width="18" height="12" viewBox="0 0 18 12" fill="#141414"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="2.5" width="3" height="9.5" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>
+      <svg width="17" height="12" viewBox="0 0 17 12" fill="#141414"><path d="M8.5 2.2c2.6 0 5 1 6.8 2.7l1.3-1.4A11.4 11.4 0 0 0 8.5.2 11.4 11.4 0 0 0 .4 3.5l1.3 1.4A9.4 9.4 0 0 1 8.5 2.2zm0 3.6c1.6 0 3.1.6 4.2 1.7l1.3-1.4a8 8 0 0 0-11 0l1.3 1.4A6 6 0 0 1 8.5 5.8zm0 3.5c.7 0 1.4.3 1.9.8l-1.9 2-1.9-2c.5-.5 1.2-.8 1.9-.8z"/></svg>
+      <svg width="27" height="13" viewBox="0 0 27 13" fill="none"><rect x="0.5" y="0.5" width="22" height="12" rx="3.5" stroke="#141414" stroke-opacity="0.4"/><rect x="2" y="2" width="18" height="9" rx="2" fill="#141414"/><path d="M24.5 4.5v4c1-.4 1-3.6 0-4z" fill="#141414" fill-opacity="0.4"/></svg>
+    </div>
+  </div>
+
+  <div class="greet-hi">Hi！</div>
+  <div class="greet-sub">今天去这里吧～</div>
+
+  <div class="deck" id="deck">
+    <!-- 深色卡（初始在前，z-index:2）-->
+    <div class="task-card dark" id="cardA">
+      <!-- ② Subtract 多边形背景装饰（切图，切图就位后自动显示） -->
+      <div class="card-subtract"></div>
+      <!-- ③ 标题文字 -->
+      <div class="task-title" id="titleA"></div>
+      <!-- ④ 配图容器（固定位置，接图片接口） -->
+      <div class="task-pic-wrap placeholder" id="picWrapA">
+        <span class="task-pic-placeholder-text">配图\n接口</span>
+      </div>
+    </div>
+    <!-- 浅色卡（初始在后，z-index:1）-->
+    <div class="task-card light" id="cardB">
+      <div class="card-subtract"></div>
+      <div class="task-title" id="titleB"></div>
+      <div class="task-pic-wrap placeholder" id="picWrapB">
+        <span class="task-pic-placeholder-text">配图\n接口</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="pager" id="pager"></div>
+
+  <button class="btn-go" id="btnGo">去记录</button>
+
+  <!-- 第一次记录后：呼吸灯 +「上滑查看我的步集」 -->
+  <div class="breath" id="breath">
+    <svg class="breath-arrow" viewBox="0 0 22 22" fill="none"><path d="M5 14l6-6 6 6" stroke="#2E383F" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div class="breath-text">上滑查看我的步集</div>
+  </div>
+
+  <div class="home-ind"></div>
+
+  <button class="demo-toggle" id="demoToggle">模拟“已记录”</button>
+</div>
+
+<script src="assets/api.js"></script>
+<script>
+// ── 任务卡数据源：由后端 /v1/tasks/today 下发 ──
+// 启动时兜底一份（网络失败时可看到界面），随后被真实数据替换
+let TASKS = [
+  { title: '正在加载今日任务…', image: '' },
+];
+let N = TASKS.length;
+
+// 尝试拿定位（用户拒绝或不支持时降级为无位置）
+function getLocation(timeoutMs = 3000) {
+  return new Promise(resolve => {
+    if (!navigator.geolocation) return resolve(null);
+    let done = false;
+    const t = setTimeout(() => { if (!done) { done = true; resolve(null); } }, timeoutMs);
+    navigator.geolocation.getCurrentPosition(
+      pos => { if (!done) { done = true; clearTimeout(t); resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }); } },
+      ()  => { if (!done) { done = true; clearTimeout(t); resolve(null); } },
+      { timeout: timeoutMs, maximumAge: 5 * 60 * 1000 }
+    );
+  });
+}
+
+async function loadTasks() {
+  try {
+    const loc = await getLocation();
+    const q = loc ? `?lat=${loc.lat}&lng=${loc.lng}&count=6` : '?count=6';
+    const data = await api('GET', '/v1/tasks/today' + q);
+    if (data.tasks && data.tasks.length) {
+      TASKS = data.tasks;
+      N = TASKS.length;
+      // 重建页码 + 重新填卡
+      pager.innerHTML = '';
+      for (let i = 0; i < N; i++) {
+        const d = document.createElement('div');
+        d.className = 'dot' + (i === 0 ? ' active' : '');
+        pager.appendChild(d);
+      }
+      index = 0;
+      render();
+    }
+  } catch (e) {
+    console.warn('[discover] 加载任务失败，使用占位:', e.message);
+  }
+}
+function _param(k) { return new URLSearchParams(location.search).get(k) || new URLSearchParams(location.hash.slice(1)).get(k); }
+const EMBED = _param('embed') === '1';
+if (EMBED) {
+  document.body.classList.add('embed');
+  // ── 等比缩放：让整个发现页（含「去记录」按钮）恰好填满 iframe ──
+  // 设计尺寸 430×932；按 iframe 实际 w/h 求最小 scale，保证全内容可见
+  const _shell = document.querySelector('.phone-shell');
+  const fitShellToIframe = () => {
+    const sw = 430, sh = 932;
+    const scale = Math.min(window.innerWidth / sw, window.innerHeight / sh);
+    // 用 important 覆盖 CSS 里的 `transform: scale(1) !important`（否则 inline 无 important 不生效）
+    _shell.style.setProperty('transform', `scale(${Math.min(1, scale)})`, 'important');
+  };
+  fitShellToIframe();
+  window.addEventListener('resize', fitShellToIframe);
+}
+
+// 统一整页跳转：iframe 内续传 embed 语境，独立打开则用各自完整手机外壳
+function nav(page, params) {
+  const parts = [];
+  if (EMBED) parts.push('embed=1');
+  if (params) parts.push(params);
+  location.href = page + (parts.length ? '#' + parts.join('&') : '');
+}
+// 在 buji 容器内：发 postMessage 触发滑动/覆盖层；独立打开：整页跳转
+// 命名为 route，避免与下方卡片轮播的 go(dir) 冲突
+function route(msg, page, params) {
+  if (EMBED) parent.postMessage(msg, '*');
+  else nav(page, params);
+}
+
+const deck = document.getElementById('deck');
+const pager = document.getElementById('pager');
+let frontEl = document.getElementById('cardA');  // 深色，初始在前
+let backEl  = document.getElementById('cardB');  // 浅色，初始在后
+let index = 0, animating = false;
+
+const FRONT_T = 'translate(0px,0px) rotate(2deg) scale(1)';
+const BACK_T  = 'translate(8px,14px) rotate(-5deg) scale(0.95)';
+const EASE    = 'cubic-bezier(.34,.06,.2,1)';
+
+// 页码
+for (let i = 0; i < N; i++) { const d = document.createElement('div'); d.className = 'dot' + (i === 0 ? ' active' : ''); pager.appendChild(d); }
+function syncPager() { [...pager.children].forEach((d, i) => d.classList.toggle('active', i === index)); }
+
+// fillCard：将任务数据填入卡片
+// t.image：配图 URL（有图显示图片，无图保持占位框）
+// 配图容器 .task-pic-wrap 位置固定，仅内容（img src）变化
+function fillCard(el, taskIdx) {
+  const t = TASKS[((taskIdx % N) + N) % N];
+
+  // ③ 填标题文字（支持 \n 换行）
+  el.querySelector('.task-title').innerHTML = t.title.replace(/\n/g, '<br>');
+
+  // ④ 填配图
+  const wrap = el.querySelector('.task-pic-wrap');
+  if (t.image) {
+    // 有图：清除占位，插入 <img>
+    wrap.classList.remove('placeholder');
+    wrap.innerHTML = `<img src="${t.image}" alt="">`;
+  } else {
+    // 无图：显示占位框
+    wrap.classList.add('placeholder');
+    wrap.innerHTML = '<span class="task-pic-placeholder-text">配图\n接口</span>';
+  }
+}
+
+function place(el, transform, z) { el.style.transform = transform; el.style.zIndex = z; }
+function settle() {                         // 瞬时定位（无过渡）
+  frontEl.style.transition = backEl.style.transition = 'none';
+  place(frontEl, FRONT_T, 2);
+  place(backEl, BACK_T, 1);
+}
+function render() { fillCard(frontEl, index); fillCard(backEl, index + 1); settle(); syncPager(); }
+
+// ── 连贯切换：front 从「当前所在位置」顺势过渡到 back 位，back 同时升到 front 位 ──
+function go(dir) {                           // dir=+1 下一张, -1 上一张
+  if (animating) return; animating = true;
+  // front 顺势滑到第二张背后（一段连续 transition，从当前拖拽位继续，无中间停顿）
+  frontEl.style.transition = `transform .46s ${EASE}`;
+  backEl.style.transition  = `transform .46s ${EASE}`;
+  place(frontEl, BACK_T, 1);
+  place(backEl, FRONT_T, 2);
+  const onEnd = (e) => {
+    if (e.propertyName !== 'transform') return;
+    backEl.removeEventListener('transitionend', onEnd);
+    const old = frontEl; frontEl = backEl; backEl = old;   // 交换身份（深浅自动交替）
+    index = ((index + dir) % N + N) % N;
+    fillCard(backEl, index + 1);                            // 新的“下一张”填入后卡
+    settle();                                               // 瞬时落位
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      frontEl.style.transition = backEl.style.transition = '';
+      animating = false; syncPager();
+    }));
+  };
+  backEl.addEventListener('transitionend', onEnd);
+}
+
+// ── 拖拽（跟手 + 松手顺势）──
+let dragging = false, sx = 0, dx = 0;
+deck.addEventListener('pointerdown', e => {
+  if (animating) return;
+  dragging = true; sx = e.clientX; dx = 0;
+  frontEl.style.transition = 'none';
+  deck.setPointerCapture && deck.setPointerCapture(e.pointerId);
+});
+deck.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  dx = e.clientX - sx;
+  frontEl.style.transform = `translate(${dx}px, ${Math.abs(dx) * 0.12}px) rotate(${2 + dx / 30}deg) scale(1)`;
+});
+function endDrag() {
+  if (!dragging) return; dragging = false;
+  if (Math.abs(dx) > 70) {
+    go(dx < 0 ? 1 : -1);                     // 从当前拖拽位直接顺势到背后
+  } else {
+    frontEl.style.transition = `transform .3s ${EASE}`;
+    frontEl.style.transform = FRONT_T;       // 回弹
+  }
+}
+deck.addEventListener('pointerup', endDrag);
+deck.addEventListener('pointercancel', endDrag);
+
+// 去记录 → 相机
+document.getElementById('btnGo').addEventListener('click', () => route('openCamera', 'live-template-camera.html'));
+
+// ── 呼吸提示（第一次记录后出现，3 秒后淡出）+ 整页「上滑」回相册地图 ──
+const breath = document.getElementById('breath');
+function showBreath(on) {
+  if (on) {
+    // 重置动画：先移除再异步添加，触发 CSS 动画重播
+    breath.classList.remove('show');
+    void breath.offsetWidth;  // 强制 reflow
+    breath.classList.add('show');
+    // 3 秒后移除 show（动画结束后保持 opacity:0，避免重叠交互）
+    clearTimeout(breath._hideTimer);
+    breath._hideTimer = setTimeout(() => breath.classList.remove('show'), 3000);
+  } else {
+    clearTimeout(breath._hideTimer);
+    breath.classList.remove('show');
+  }
+}
+let recorded = _param('recorded') === '1';
+
+// 整个页面上滑（记录后生效）→ 相册地图；要求垂直上滑为主，避免与左右切卡冲突
+const shell = document.querySelector('.phone-shell');
+let gx = 0, gy = 0, gDown = false, gTarget = null;
+shell.addEventListener('pointerdown', e => { gx = e.clientX; gy = e.clientY; gDown = true; gTarget = e.target; }, true);
+shell.addEventListener('pointerup', e => {
+  if (!gDown) return; gDown = false;
+  if (!recorded) return;
+  // 起手落在「去记录」按钮上 → 视为点击，不触发整页上滑（避免热区重叠误跳相册地图）
+  if (gTarget && gTarget.closest && gTarget.closest('#btnGo')) return;
+  const dyUp = gy - e.clientY;                 // 上滑为正
+  const dxAbs = Math.abs(e.clientX - gx);
+  if (dyUp > 80 && dyUp > dxAbs * 1.5) route('goAlbum', 'album-map.html');
+}, true);
+breath.addEventListener('click', () => route('goAlbum', 'album-map.html')); // 点呼吸灯也可
+
+document.getElementById('demoToggle').addEventListener('click', () => { recorded = !recorded; showBreath(recorded); });
+showBreath(recorded);
+
+render();
+
+// 启动后异步拉真实任务（不阻塞首屏）
+loadTasks();
+</script>
+</body>
+</html>

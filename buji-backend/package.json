@@ -1,0 +1,22 @@
+{
+  "name": "buji-backend",
+  "version": "1.0.0",
+  "description": "步集 BUJI · 轻后端（Node.js + Express + SQLite）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "seed": "node db/seed.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "better-sqlite3": "^11.7.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "uuid": "^11.0.4"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>步集 BUJI</title>
+
+<!-- ─── PWA / 添加到主屏幕 ─── -->
+<link rel="manifest" href="/manifest.json">
+<!-- iOS Safari：全屏 App 模式 -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="步集">
+<link rel="apple-touch-icon" href="/assets/icon-192.png">
+<!-- Android Chrome 主题色 -->
+<meta name="theme-color" content="#0a0a0f">
+<meta name="mobile-web-app-capable" content="yes">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    background: #0a0a0f; min-height: 100dvh; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, "PingFang SC", sans-serif;
+  }
+  /* 真·手机外壳（PC 演示用） */
+  .phone-shell {
+    width: 430px; height: 932px; border-radius: 54px; overflow: hidden; position: relative;
+    background: #000; box-shadow: 0 0 0 2px #2a2a30, 0 30px 80px rgba(0,0,0,0.8);
+  }
+  @media (max-height: 960px) { .phone-shell { transform: scale(0.86); transform-origin: center; } }
+  @media (max-height: 820px) { .phone-shell { transform: scale(0.74); transform-origin: center; } }
+  @media (max-height: 720px) { .phone-shell { transform: scale(0.64); transform-origin: center; } }
+
+  /* PWA standalone 模式（从桌面图标打开）：去掉手机外壳 + 铺满全屏 */
+  @media (display-mode: standalone) {
+    body { align-items: stretch; justify-content: stretch; }
+    .phone-shell {
+      width: 100%; height: 100dvh;
+      border-radius: 0; box-shadow: none;
+      transform: none !important;
+    }
+  }
+
+  /* 垂直滑动轨道：高 200%（发现页 + 相册地图两屏），translateY 切换（连续滑动动效） */
+  .track {
+    position: absolute; left: 0; top: 0; width: 100%; height: 200%;
+    transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    will-change: transform;
+  }
+  .track iframe { display: block; width: 100%; height: 50%; border: 0; }
+
+  /* 覆盖层：相机 / 发布页，从底部滑入盖住整屏 */
+  .overlay {
+    position: absolute; inset: 0; width: 100%; height: 100%; border: 0;
+    background: #0a0a0f; z-index: 10;
+    transform: translateY(100%);
+    transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+    will-change: transform;
+    pointer-events: none;   /* 藏起时不拦截点击，避免挡住下方发现页 */
+  }
+  .overlay.show { transform: translateY(0); pointer-events: auto; }
+</style>
+</head>
+<body>
+  <div class="phone-shell">
+    <!-- 双屏轨道：第 0 屏发现页 / 第 1 屏相册地图 -->
+    <div class="track" id="track">
+      <iframe id="fDiscover" src="discover-page.html#embed=1&recorded=1"></iframe>
+      <iframe id="fAlbum" src="album-map.html#embed=1"></iframe>
+    </div>
+    <!-- 覆盖层：相机 / 发布（按需加载滑入） -->
+    <!-- allow="camera" 必须显式声明，否则 iframe 内 getUserMedia 被浏览器拦截 -->
+    <iframe id="fOverlay" class="overlay"
+            allow="camera; microphone; geolocation"></iframe>
+  </div>
+
+  <script>
+    // ══════════════════════════════════════════════════════════
+    //  步集容器 · 双屏轨道滑动 + 覆盖层
+    //  发现页 ↔ 相册地图：track 上下滑动（连续动效）
+    //  相机/发布：overlay 从底部滑入
+    // ══════════════════════════════════════════════════════════
+    const track   = document.getElementById('track');
+    const overlay = document.getElementById('fOverlay');
+
+    function toDiscover() { track.style.transform = 'translateY(0)'; }
+    function toAlbum()    { track.style.transform = 'translateY(-50%)'; }
+    function openOverlay(src) { overlay.src = src; requestAnimationFrame(() => overlay.classList.add('show')); }
+    function closeOverlay()   { overlay.classList.remove('show'); setTimeout(() => { if (!overlay.classList.contains('show')) overlay.removeAttribute('src'); }, 500); }
+
+    window.addEventListener('message', (e) => {
+      const d = e.data;
+      if (d === 'goAlbum')          toAlbum();                                   // 发现页 → 相册地图（上滑）
+      else if (d === 'goDiscover')  toDiscover();                                // 相册地图 → 发现页（下滑）
+      else if (d === 'openCamera')  openOverlay('live-template-camera.html#embed=1');  // 发现页 → 相机
+      else if (d === 'goPublish')   { overlay.src = 'publish-page.html#embed=1'; }     // 相机 → 发布（重载读草稿，overlay 保持显示）
+      else if (d === 'publishDone') {                                            // 发布完成 → 相册地图 + 收起覆盖层 + 刷新相册数据
+        toAlbum(); closeOverlay();
+        const fa = document.getElementById('fAlbum');
+        if (fa && fa.contentWindow) fa.contentWindow.postMessage('refresh', '*');
+      }
+      else if (d === 'closeOverlay') closeOverlay();                             // 相机/发布返回 → 收起覆盖层回发现页
+    });
+  // ── Service Worker 注册（PWA 离线支持）────────────────────
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(e => console.warn('[SW]', e));
+  }
+  </script>
+</body>
+</html>
