@@ -529,6 +529,8 @@ const state = {
   stream: null,
   video: null,
   demoMode: false,
+  flashOn: false,       // 闪光灯当前状态（torch：仅真机生效）
+  albumSrc: null,       // 相册选入的图片（HTMLImageElement），非 null 时覆盖摄像头画面
   orientation: 'portrait',   // portrait=竖屏(2:3,上下分割) / landscape=横屏(4:3,左右分割)
   maskRatio: 0.5,            // 遮罩区占比 0~1（占比滑块/100；0.5 等比）
   swapped: false,            // false=取景在上/遮罩在下
@@ -799,10 +801,19 @@ function renderFrame() {
   if (!dims) return;
   const { W, H, baseFrame, baseMask, offX, offY } = dims;
 
-  // 画面源
+  // 画面源：相册选图 > 摄像头实时帧 > demo 帧
   let src, srcW = 640, srcH = 480;
-  if (state.demoMode || !state.video) { src = createDemoFrame(); }
-  else { src = state.video; srcW = src.videoWidth || 640; srcH = src.videoHeight || 480; }
+  if (state.albumSrc) {
+    src = state.albumSrc;
+    srcW = state.albumSrc.naturalWidth || 640;
+    srcH = state.albumSrc.naturalHeight || 480;
+  } else if (state.demoMode || !state.video) {
+    src = createDemoFrame();
+  } else {
+    src = state.video;
+    srcW = src.videoWidth || 640;
+    srcH = src.videoHeight || 480;
+  }
 
   // 清空
   ctx.clearRect(0, 0, W, H);
@@ -989,6 +1000,8 @@ function takePhoto() {
 // ── 镜头翻转 ────────────────────────────────────────────────
 async function flipCamera() {
   if (!state.stream) return;
+  // 翻转前先熄灭闪光灯（防止翻转后旧 track 残留 torch 打开）
+  if (typeof window._cleanupFlash === 'function') window._cleanupFlash();
   state.stream.getTracks().forEach(t => t.stop());
   state.stream = null; state.video = null;
   wrapper.style.transition = 'transform 0.35s ease';
@@ -1015,6 +1028,74 @@ function renderColorBar() {
   const _cd = document.getElementById('colorDot');
   if (_cd) _cd.style.background = state.maskColor;
 }
+
+// ── 相册：调起本地相册，选中图片后用作取景框画面源 ───────────────
+(function initAlbum() {
+  const albumBtn = document.getElementById('albumBtn');
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = 'image/*';
+  fileInput.style.cssText = 'position:absolute;width:0;height:0;opacity:0;pointer-events:none;';
+  document.body.appendChild(fileInput);
+
+  albumBtn.addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      // 释放旧 objectURL（防内存泄漏）
+      if (state.albumSrc && state.albumSrc._objURL) URL.revokeObjectURL(state.albumSrc._objURL);
+      img._objURL = url;
+      state.albumSrc = img;
+      // 把相册图缩略图设为按钮背景，给用户视觉反馈
+      albumBtn.style.backgroundImage = `url(${url})`;
+      albumBtn.style.backgroundSize = 'cover';
+      albumBtn.style.backgroundPosition = 'center';
+    };
+    img.onerror = () => URL.revokeObjectURL(url);
+    img.src = url;
+    // 重置 input 以允许重复选同一张图
+    fileInput.value = '';
+  });
+})();
+
+// ── 闪光灯（torch）：点击切换手机闪光灯，仅真机摄像头生效 ─────────
+(function initFlash() {
+  const flashBtn = document.getElementById('topLeftBtn');
+  // embed 模式下该按钮已被替换为"返回"，不做闪光灯处理
+  if (!flashBtn || location.hash.includes('embed=1')) return;
+
+  async function setTorch(on) {
+    if (!state.stream) return;
+    const track = state.stream.getVideoTracks()[0];
+    if (!track) return;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: on }] });
+      state.flashOn = on;
+      // 图标：亮起时 SVG 加高亮色；熄灭时恢复原始 SVG
+      const img = flashBtn.querySelector('img');
+      if (img) img.style.filter = on ? 'brightness(0) saturate(100%) invert(90%) sepia(60%) saturate(600%) hue-rotate(0deg)' : '';
+      // toast 提示（仅首次）
+    } catch (e) {
+      console.warn('[flash] torch 不支持:', e.message);
+      showToast('当前设备不支持闪光灯控制');
+    }
+  }
+
+  flashBtn.addEventListener('click', () => {
+    if (state.demoMode || !state.stream) {
+      showToast('请先开启摄像头');
+      return;
+    }
+    setTorch(!state.flashOn);
+  });
+
+  // 摄像头关闭时自动熄灭闪光灯
+  window._cleanupFlash = () => { if (state.flashOn) setTorch(false); };
+})();
 
 // ── 事件 ──────────────────────────────────────────────────
 document.getElementById('permBtn').addEventListener('click', startCamera);
