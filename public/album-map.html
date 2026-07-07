@@ -54,23 +54,48 @@
   .photo-card {
     position: absolute; top: 0; left: 0; border-radius: 20px; overflow: hidden;
     box-shadow: 0 0 0 1px #ffffff, 0 4px 16px rgba(0,0,0,0.06); will-change: transform;
+    background: transparent;
   }
-  .photo-card img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+  .photo-card img { width: 100%; height: auto; display: block; pointer-events: none; }
 
-  /* ── 大图卡片模式（1张 / 2-3张）：复用发现页 deck 视觉 + 横滑切换 ── */
-  /*    容器位置与发现页 deck 完全一致（left:35 top:253），和相册日期/文案天然对齐 */
+  /* ── 大图展示容器（单图放置区域）── */
   .album-deck {
-    position: absolute; left: 35px; top: 253px;
-    width: 360px; height: 419px; z-index: 10;
-    display: none; touch-action: none;
+    position: absolute;
+    left: 0; top: 196px;
+    width: 430px; height: 600px;
+    z-index: 10;
+    display: none;            /* 由 .single(flex) 决定显隐 */
+    touch-action: none;
   }
   .album-card {
-    position: absolute; left: 0; top: 0; width: 360px; height: 419px;
-    border-radius: 20px; overflow: hidden; cursor: grab; background: #e8eef3;
+    position: absolute; left: 0; top: 0;
+    border-radius: 20px; overflow: hidden; background: #e8eef3;
     box-shadow: 0 10px 30px rgba(40,60,80,0.18); will-change: transform;
   }
   .album-card img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; -webkit-user-drag: none; }
-  .album-deck.single .album-card { cursor: default; }   /* 单张：不可拖拽切换 */
+
+  /* ===== 单张：容器内上下左右居中，原比例不裁切（上限=确认页图片 406×573）===== */
+  .album-deck.single { display: flex; align-items: center; justify-content: center; }
+  .album-deck.single .album-card {
+    position: relative; left: auto; top: auto;
+    width: auto; height: auto;
+    max-width: 406px; max-height: 573px;
+  }
+  .album-deck.single .album-card img {
+    width: auto; height: auto;
+    max-width: 406px; max-height: 573px;
+    object-fit: contain;
+  }
+
+  /* ===== 空状态（0 张成片）：米白灰底 + 两个模糊灰椭圆（对齐 Figma 522:3372）===== */
+  .empty-state { position: absolute; inset: 0; z-index: 6; display: none; overflow: hidden; }
+  .empty-state.show { display: block; }
+  .empty-blob {
+    position: absolute; width: 184px; height: 184px; border-radius: 50%;
+    background: #ECECEC; filter: blur(54px);
+  }
+  .empty-blob.blob-a { left: 29px; top: -15px; }
+  .empty-blob.blob-b { left: 257px; top: -15px; }
 
   .home-ind { position: absolute; left: 50%; bottom: 9px; transform: translateX(-50%); width: 139px; height: 5px; border-radius: 100px; background: #000; z-index: 40; }
 
@@ -122,10 +147,13 @@
 
   <div class="stage" id="stage"></div>
 
-  <!-- 大图卡片模式容器（1张/2-3张时显示，≥4张隐藏走地图）；cardA 在 DOM 后=上层=front -->
-  <div class="album-deck" id="albumDeck">
-    <div class="album-card" id="albumCardB"><img alt=""></div>
-    <div class="album-card" id="albumCardA"><img alt=""></div>
+  <!-- 大图展示容器（1张居中；≥2张走地图）；卡片由 JS 生成 -->
+  <div class="album-deck" id="albumDeck"></div>
+
+  <!-- 空状态（0 张成片）：米白灰底 + 两个模糊灰椭圆（对齐 Figma 522:3372 新稿）-->
+  <div class="empty-state" id="emptyState">
+    <div class="empty-blob blob-a"></div>
+    <div class="empty-blob blob-b"></div>
   </div>
 
   <!-- 顶部下滑提示（进入页面后 3 秒淡出） -->
@@ -151,8 +179,26 @@
 
 const stage = document.getElementById('stage');
 
-// 固定的 8 个展示槽位高度（对齐 figma 错落布局；不随内容变化）
-const SLOT_HEIGHTS = [361, 333, 357, 361, 360, 332, 332, 403];
+// 瀑布流：所有图宽 270，高度按图片自身比例等比缩放（高度不一致）
+//   heightCache[url] = 等比高度(px)；加载前用占位高度，加载后回填并重排
+const PLACEHOLDER_H = 360;
+const heightCache = {};
+function cardH(cIdx) {
+  const m = MAP_SRC[cIdx];
+  return (m && heightCache[m.imageUrl]) || PLACEHOLDER_H;
+}
+// 预加载所有唯一图，测出等比高度后刷新布局
+function preloadHeights() {
+  MAP_SRC.forEach(m => {
+    if (heightCache[m.imageUrl]) return;
+    const im = new Image();
+    im.onload = () => {
+      if (im.naturalWidth) heightCache[m.imageUrl] = Math.round(CW * im.naturalHeight / im.naturalWidth);
+      place(false);
+    };
+    im.src = m.imageUrl;
+  });
+}
 
 // 地图内容源（每项 {imageUrl,date,caption}）：默认演示图；真实成片(≥6张)时替换。
 // ★ 8 个展示位循环显示这 N 张「唯一」内容；滚出视口的位按 nextC 递增取「下一张」，
@@ -186,12 +232,21 @@ function colExtra(s) {
   return a * (1 - fr) + b * fr;
 }
 
-function makePhotoCard(src, w, h) {
+function makePhotoCard(src, w) {
   const card = document.createElement('div');
   card.className = 'photo-card';
-  card.style.width = w + 'px'; card.style.height = h + 'px';
+  card.style.width = w + 'px';   // 高度按图片比例，由 place() 动态设置
   const img = document.createElement('img');
-  img.src = src; img.draggable = false;
+  img.draggable = false;
+  // 图片加载后回填等比高度并重排（瀑布流高度不一致）
+  img.onload = () => {
+    const u = img.getAttribute('src');
+    if (img.naturalWidth && u) {
+      const h = Math.round(w * img.naturalHeight / img.naturalWidth);
+      if (heightCache[u] !== h) { heightCache[u] = h; place(false); }
+    }
+  };
+  img.src = src;
   card.appendChild(img);
   return { card, img };
 }
@@ -215,21 +270,21 @@ function contentIdxOf(it) {
 }
 
 // 建/重建 8 个展示位（数据源变更后可调用一次刷新）
-//   高度恒用 SLOT_HEIGHTS（错落布局稳定）；初始 absCol=col-centerCol，
+//   宽度恒 270、高度按图片比例（瀑布流）；初始 absCol=col-centerCol，
 //   使中列(centerCol) row0 = MAP_SRC[0]（最新成片落在焦点位）。
 function buildItems() {
   _items.forEach(it => it.el.remove());
   _items = [];
   for (let i = 0; i < count; i++) {
     const col = Math.floor(i / 2), row = i % 2;
-    const rowYOffset = row === 0 ? 0 : (SLOT_HEIGHTS[col * 2] + GAP);
-    const it = { el: null, img: null, col, row, rowYOffset, absCol: col - centerCol, cIdx: 0, _s: null };
+    const it = { el: null, img: null, col, row, absCol: col - centerCol, cIdx: 0, _s: null };
     it.cIdx = contentIdxOf(it);
-    const { card, img } = makePhotoCard(MAP_SRC[it.cIdx].imageUrl, CW, SLOT_HEIGHTS[i]);
+    const { card, img } = makePhotoCard(MAP_SRC[it.cIdx].imageUrl, CW);
     stage.appendChild(card);
     it.el = card; it.img = img;
     _items.push(it);
   }
+  preloadHeights();   // 预载所有图的等比高度，加载后自动重排
 }
 buildItems();
 
@@ -245,10 +300,9 @@ function wrapS(s) {
 
 function place(anim) {
   const c0 = cx0();
+  // 第一遍：处理 wrap（更新内容），记录每个 item 当前视觉列 s
   _items.forEach(it => {
     const s = wrapS(it.col - centerCol - rotation);
-    const x = c0 + s * COL_STEP;
-    const y = BASE_TOP + colExtra(s) + it.rowYOffset + panY;
     const jumped = it._s != null && Math.abs(s - it._s) > 1.5;
     // ★ wrap 到视口另一侧 → 逻辑列 ±numCols，内容随之更新（用户看不到突变）。
     //   s 变大（绕到右侧）代表更后面的内容 → absCol += numCols；反之 -=。
@@ -258,7 +312,19 @@ function place(anim) {
       it.cIdx = contentIdxOf(it);
       it.img.src = MAP_SRC[it.cIdx].imageUrl;
     }
-    it.el.style.transition = (anim && !jumped) ? 'transform 0.34s cubic-bezier(0.22,1,0.36,1)' : 'none';
+    it._sCur = s; it._jumped = jumped;
+  });
+  // 每列 row0（第一排）当前高度 —— 用于 row1（第二排）纵向定位
+  const row0H = {};
+  _items.forEach(it => { if (it.row === 0) row0H[it.col] = cardH(it.cIdx); });
+  // 第二遍：设高（瀑布流等比高度）+ 定位
+  //   第一排顶部 = BASE_TOP + 列错落(固定)；第二排 = 第一排底 + GAP(18)
+  _items.forEach(it => {
+    const s = it._sCur;
+    const x = c0 + s * COL_STEP;
+    const colY = BASE_TOP + colExtra(s) + panY;
+    const y = it.row === 0 ? colY : colY + row0H[it.col] + GAP;
+    it.el.style.transition = (anim && !it._jumped) ? 'transform 0.34s cubic-bezier(0.22,1,0.36,1)' : 'none';
     it.el.style.transform = `translate(${x}px, ${y}px)`;
     it._s = s;
   });
@@ -366,104 +432,58 @@ function go(msg, page, params) {
 }
 
 // ══════════════════════════════════════════════════════════
-//  大图卡片模式（1张 / 2-3张）—— 复用发现页卡片切换交互
-//  1 张：单图正放大图展示（不可切换）
-//  2~3 张：叠放卡片，横滑跟手 + 松手切换（联动左上日期/文案）
+//  展示模式（空状态 / 单图 / 地图）
+//   0 张：空状态（米白灰底 + 两个模糊灰椭圆，对齐 Figma 522:3372 新稿）
+//   1 张：图片在容器内上下左右居中，原比例不裁切（上限=确认页 406×573）
+//   ≥2 张：复用地图错落组件（原「≥4 张」组件）
 // ══════════════════════════════════════════════════════════
 const albumDeck = document.getElementById('albumDeck');
-const FRONT_T   = 'translate(0px,0px) rotate(2deg) scale(1)';
-const BACK_T    = 'translate(8px,14px) rotate(-5deg) scale(0.95)';
-const SINGLE_T  = 'translate(0px,0px) rotate(0deg) scale(1)';   // 单张正放
-const CARD_EASE = 'cubic-bezier(.34,.06,.2,1)';
+const emptyState = document.getElementById('emptyState');
+let POSTS = [];
 
-let POSTS = [], cardIndex = 0, cardAnimating = false;
-let cardFront = document.getElementById('albumCardA');   // DOM 后=上层=front
-let cardBack  = document.getElementById('albumCardB');
-
-function cardFill(el, idx) {
-  const n = POSTS.length; if (!n) return;
-  const p = POSTS[((idx % n) + n) % n];
-  el.querySelector('img').src = p.imageUrl;
-}
-function cardPlace(el, t, z) { el.style.transform = t; el.style.zIndex = z; }
-function cardSettle() {
-  cardFront.style.transition = cardBack.style.transition = 'none';
-  cardPlace(cardFront, FRONT_T, 2);
-  cardPlace(cardBack, BACK_T, 1);
-}
-function cardUpdateMeta() {
-  const n = POSTS.length; if (!n) return;
-  const p = POSTS[((cardIndex % n) + n) % n];
+function cardUpdateMetaFor(p) {
+  if (!p) return;
   document.getElementById('albumDate').textContent = formatDate(p.date);
   document.getElementById('caption').textContent   = p.caption || '记录一天';
 }
-// 连贯切换：front 顺势滑到 back 位，back 升到 front 位，交换身份
-function slideCard(dir) {
-  if (POSTS.length < 2 || cardAnimating) return;
-  cardAnimating = true;
-  cardFront.style.transition = `transform .46s ${CARD_EASE}`;
-  cardBack.style.transition  = `transform .46s ${CARD_EASE}`;
-  cardPlace(cardFront, BACK_T, 1);
-  cardPlace(cardBack, FRONT_T, 2);
-  const onEnd = (e) => {
-    if (e.propertyName !== 'transform') return;
-    cardBack.removeEventListener('transitionend', onEnd);
-    const old = cardFront; cardFront = cardBack; cardBack = old;
-    cardIndex = ((cardIndex + dir) % POSTS.length + POSTS.length) % POSTS.length;
-    cardFill(cardBack, cardIndex + 1);
-    cardSettle();
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      cardFront.style.transition = cardBack.style.transition = '';
-      cardAnimating = false; cardUpdateMeta();
-    }));
-  };
-  cardBack.addEventListener('transitionend', onEnd);
-}
-// 横滑拖拽（跟手 + 松手顺势）
-let cDrag = false, csx = 0, cdx = 0;
-albumDeck.addEventListener('pointerdown', e => {
-  if (POSTS.length < 2 || cardAnimating) return;
-  cDrag = true; csx = e.clientX; cdx = 0;
-  cardFront.style.transition = 'none';
-  albumDeck.setPointerCapture && albumDeck.setPointerCapture(e.pointerId);
-});
-albumDeck.addEventListener('pointermove', e => {
-  if (!cDrag) return;
-  cdx = e.clientX - csx;
-  cardFront.style.transform = `translate(${cdx}px, ${Math.abs(cdx) * 0.12}px) rotate(${2 + cdx / 30}deg) scale(1)`;
-});
-function cardEndDrag() {
-  if (!cDrag) return; cDrag = false;
-  if (Math.abs(cdx) > 70) slideCard(cdx < 0 ? 1 : -1);
-  else { cardFront.style.transition = `transform .3s ${CARD_EASE}`; cardFront.style.transform = FRONT_T; }
-}
-albumDeck.addEventListener('pointerup', cardEndDrag);
-albumDeck.addEventListener('pointercancel', cardEndDrag);
 
-// ── 模式切换：地图 ↔ 卡片 ─────────────────────────────
-function showMapMode() { albumDeck.style.display = 'none'; stage.style.display = ''; }
+function clearDeck() {
+  albumDeck.innerHTML = '';
+  albumDeck.classList.remove('single');
+}
+
+// 单张：原比例居中（不裁切，上限 406×573）
+function renderSingle(post) {
+  clearDeck();
+  albumDeck.classList.add('single');
+  const card = document.createElement('div');
+  card.className = 'album-card';
+  const img = document.createElement('img');
+  img.src = post.imageUrl; img.draggable = false;
+  card.appendChild(img);
+  albumDeck.appendChild(card);
+}
+
+// ── 模式切换：地图 / 单图 / 空状态 ─────────────────────
+function showMapMode() {
+  emptyState.classList.remove('show');
+  clearDeck();
+  stage.style.display = '';
+}
 function showCardMode(posts) {
+  emptyState.classList.remove('show');
   stage.style.display = 'none';
-  albumDeck.style.display = 'block';
-  POSTS = posts; cardIndex = 0;
-  cardFront = document.getElementById('albumCardA');   // 复位身份，避免多次切换后错乱
-  cardBack  = document.getElementById('albumCardB');
-  if (posts.length === 1) {
-    // 1 张：单图正放大图，隐藏后卡，禁用切换
-    albumDeck.classList.add('single');
-    cardBack.style.display = 'none';
-    cardFill(cardFront, 0);
-    cardPlace(cardFront, SINGLE_T, 2);
-    cardUpdateMeta();
-  } else {
-    // 2~3 张：叠放卡片，可横滑切换
-    albumDeck.classList.remove('single');
-    cardBack.style.display = '';
-    cardFill(cardFront, 0);
-    cardFill(cardBack, 1);
-    cardSettle();
-    cardUpdateMeta();
-  }
+  POSTS = posts;
+  renderSingle(posts[0]);
+  cardUpdateMetaFor(posts[0]);
+}
+// 空状态（0 张成片）：仅米白灰底 + 模糊灰椭圆，隐藏日期/文案/照片
+function showEmptyState() {
+  clearDeck();
+  stage.style.display = 'none';
+  document.getElementById('albumDate').textContent = '';
+  document.getElementById('caption').textContent = '';
+  emptyState.classList.add('show');
 }
 
 // ── 地图模式填充（≥6张）──────────────────────────────
@@ -481,14 +501,28 @@ function fillMapFromPosts(posts) {
 }
 
 // ── 拉取成片 + 按数量分发展示模式 ─────────────────────
-//   1 张：单图 / 2~3 张：卡片横滑 / ≥4 张：地图错落（焦点连续不重复）/ 0 张：演示地图
+//   0 张：空状态 / 1 张：单图居中 / ≥2 张：地图错落（复用原 ≥4 组件）
+//   ★ 调试：URL 加 ?preview=0/1/2/3/4 强制预览（0=空状态；1=单图；≥2=地图）
 async function loadUserPosts() {
+  const pv = new URLSearchParams(location.search).get('preview');
+  if (pv !== null) {
+    const previewN = parseInt(pv);
+    if (previewN === 0) { showEmptyState(); return; }
+    const demoPosts = MAP_SRC.slice(0, previewN).map(m => ({
+      imageUrl: m.imageUrl,
+      date: m.date.replace(/(\d+)月(\d+)日/, (_, mm, dd) => `2025-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`),
+      caption: m.caption,
+    }));
+    if (previewN === 1) showCardMode(demoPosts);
+    else { showMapMode(); fillMapFromPosts(demoPosts); }
+    return;
+  }
   try {
     const data = await api('GET', '/v1/posts?limit=50');
     const posts = data.posts || [];
-    if (posts.length === 0) { showMapMode(); return; }        // 无真实数据 → 保留演示地图
-    if (posts.length >= 4)  { showMapMode(); fillMapFromPosts(posts); }  // ≥4 → 地图
-    else                    { showCardMode(posts); }          // 1~3 张 → 大图卡片（1张单图/2-3横滑）
+    if (posts.length === 0) { showEmptyState(); return; }     // 0 张 → 空状态
+    if (posts.length === 1) { showCardMode(posts); return; }  // 1 张 → 单图居中
+    showMapMode(); fillMapFromPosts(posts);                   // ≥2 张 → 地图（复用原组件）
   } catch (e) {
     console.warn('[album] 拉取成片失败，使用演示图:', e.message);
   }
